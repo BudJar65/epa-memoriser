@@ -459,10 +459,13 @@ function renderDrill() {
       <div class="card">
         <p class="q-label">You should say:</p>
         <p><b>“${esc(entry.sayFirst)}”</b></p>
-        <p class="q-label" style="margin-top:0.8em">Full locator:</p>
-        <p>PRIMARY: ${esc(entry.evidence.primary)}</p>
-        ${entry.evidence.visual ? `<p>QUICK VISUAL: ${esc(entry.evidence.visual)}</p>` : ""}
-        <p>BACKUP: ${esc(entry.evidence.backup)}</p>
+        <p class="q-label" style="margin-top:0.8em">Strongest location:</p>
+        <p>${esc(entry.evidence.primary)}</p>
+        ${entry.evidence.visual || entry.evidence.backup ? `
+        <details class="peek"><summary>Backup locations (only if asked for a second example)</summary>
+          ${entry.evidence.visual ? `<p>QUICK VISUAL: ${esc(entry.evidence.visual)}</p>` : ""}
+          ${entry.evidence.backup ? `<p>BACKUP: ${esc(entry.evidence.backup)}</p>` : ""}
+        </details>` : ""}
       </div>`;
     controls = `
       <div class="grade-row">
@@ -541,10 +544,13 @@ function renderDetail(id) {
     <div class="card"><b>Say first</b><p>“${esc(e.sayFirst)}”</p></div>
     <div class="card"><b>The 30–45s answer</b>${e.beats.map(b => `<p>${esc(b)}</p>`).join("")}</div>
     <div class="card"><b>If probed, add</b><p>${esc(e.probe)}</p></div>
-    <div class="card"><b>📄 Evidence locator</b>
-      <p>PRIMARY: ${esc(e.evidence.primary)}</p>
-      ${e.evidence.visual ? `<p>QUICK VISUAL: ${esc(e.evidence.visual)}</p>` : ""}
-      <p>BACKUP: ${esc(e.evidence.backup)}</p>
+    <div class="card"><b>📄 Evidence — strongest location</b>
+      <p>${esc(e.evidence.primary)}</p>
+      ${e.evidence.visual || e.evidence.backup ? `
+      <details class="peek"><summary>Backup locations</summary>
+        ${e.evidence.visual ? `<p>QUICK VISUAL: ${esc(e.evidence.visual)}</p>` : ""}
+        ${e.evidence.backup ? `<p>BACKUP: ${esc(e.evidence.backup)}</p>` : ""}
+      </details>` : ""}
     </div>
     <div class="controls">
       <button class="btn" onclick="Voice.speak(ANSWER_BANK.find(x=>x.id===${e.id}).beats.join(' '))">🔊 Read answer aloud</button>

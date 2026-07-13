@@ -1,0 +1,13 @@
+{
+  "name": "EPA Answer Memoriser",
+  "short_name": "EPA Memoriser",
+  "description": "Memorise the 18 EPA resit answers with spaced repetition and voice.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#12141a",
+  "theme_color": "#2456d6",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

@@ -1,0 +1,10 @@
+# Personal EPA documents — keep these OUT of version control so they can
+# never be accidentally published if this repo goes online.
+*.docx
+*.pdf
+*.pptx
+~$*
+
+# The readable answer bank stays local; only the encrypted data.enc.json
+# is committed. Rebuild it with: python tools/encrypt_data.py "passphrase"
+js/data.js

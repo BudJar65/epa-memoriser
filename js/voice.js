@@ -12,14 +12,34 @@ const Voice = {
   primed: false,
   ukVoice: null,
 
+  // Rank voices by naturalness: user's saved choice first, then Premium,
+  // then Enhanced, then known-good UK names, then any UK, then any English.
+  _rank(v) {
+    if (Engine.settings.voiceName && v.name === Engine.settings.voiceName) return 0;
+    const en = v.lang.startsWith("en");
+    const uk = v.lang === "en-GB";
+    if (uk && /premium/i.test(v.name)) return 1;
+    if (uk && /enhanced/i.test(v.name)) return 2;
+    if (en && /premium/i.test(v.name)) return 3;
+    if (en && /enhanced/i.test(v.name)) return 4;
+    if (uk && /Serena|Daniel|Kate|Stephanie|Jamie/i.test(v.name)) return 5;
+    if (uk) return 6;
+    if (en) return 7;
+    return 9;
+  },
+
+  englishVoices() {
+    if (!this.synth) return [];
+    return this.synth.getVoices()
+      .filter(v => v.lang.startsWith("en"))
+      .sort((a, b) => this._rank(a) - this._rank(b));
+  },
+
   init() {
     if (!this.synth) return;
     const pick = () => {
-      const voices = this.synth.getVoices();
-      this.ukVoice =
-        voices.find(v => v.lang === "en-GB" && /Serena|Daniel|Kate|Stephanie/i.test(v.name)) ||
-        voices.find(v => v.lang === "en-GB") ||
-        voices.find(v => v.lang.startsWith("en")) || null;
+      const ranked = this.englishVoices();
+      this.ukVoice = ranked[0] || null;
     };
     pick();
     if (this.synth.onvoiceschanged !== undefined) this.synth.onvoiceschanged = pick;

@@ -598,6 +598,12 @@ function renderSettings() {
       <label class="setting"><span>Speech speed</span>
         <input type="range" min="0.7" max="1.4" step="0.1" value="${st.rate}"
           onchange="Engine.settings.rate=parseFloat(this.value);Engine.saveSettings();Voice.speak('This is my speaking speed.')"></label>
+      <label class="setting"><span>Voice</span>
+        <select onchange="Engine.settings.voiceName=this.value;Engine.saveSettings();Voice.init();Voice.speak('Hello Jason, I will read your answers in this voice.')">
+          <option value="">Best available</option>
+          ${Voice.englishVoices().map(v =>
+            `<option value="${esc(v.name)}" ${st.voiceName === v.name ? "selected" : ""}>${esc(v.name)} (${esc(v.lang)})</option>`).join("")}
+        </select></label>
       <label class="setting"><span>Quiz mode</span>
         <select onchange="Engine.settings.quizMode=this.value;Engine.saveSettings()">
           <option value="self" ${st.quizMode === "self" ? "selected" : ""}>Self-grade (reliable)</option>
@@ -608,6 +614,7 @@ function renderSettings() {
     </div>
     <div class="card">
       <p><b>Mic on iPhone:</b> listen mode needs Settings → Siri &amp; Search → “Siri &amp; Dictation” enabled, and Safari mic permission. If it misbehaves outdoors, switch to self-grade.</p>
+      <p><b>Nicer voice on iPhone:</b> download a Premium voice once in Settings → Accessibility → Spoken Content → Voices → English (UK) — e.g. “Serena (Premium)” — then pick it in the Voice list above.</p>
     </div>
     <button class="btn btn-ghost" onclick="if(confirm('Forget the passphrase on this device? You will need to type it again next time.')){DataLock.forget()}">🔒 Forget passphrase on this device</button>
     <button class="btn btn-ghost danger" onclick="if(confirm('Reset ALL progress? This cannot be undone.')){Engine.resetAll();renderHome()}">Reset all progress</button>

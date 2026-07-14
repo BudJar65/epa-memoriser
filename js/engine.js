@@ -20,6 +20,7 @@ const RECALLS_TO_MASTER = 3;
 const DEFAULT_SETTINGS = {
   voiceOn: true,
   rate: 1.0,          // speech speed
+  voiceName: "",      // preferred text-to-speech voice ("" = best available)
   quizMode: "self",   // "self" = reveal & self-grade, "listen" = mic scoring
   autoAdvance: true   // walk mode: move on automatically after grading
 };

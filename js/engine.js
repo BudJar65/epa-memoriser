@@ -22,7 +22,7 @@ const DEFAULT_SETTINGS = {
   rate: 1.0,          // speech speed
   voiceName: "",      // preferred text-to-speech voice ("" = best available)
   narration: true,    // play pre-generated studio clips when available
-  quizMode: "self",   // "self" = reveal & self-grade, "listen" = mic scoring
+  quizMode: "listen", // "listen" = mic scoring, "self" = reveal & self-grade
   autoAdvance: true   // walk mode: move on automatically after grading
 };
 
@@ -49,6 +49,12 @@ const Engine = {
     catch (e) { this.state = {}; }
     try { this.settings = { ...DEFAULT_SETTINGS, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}) }; }
     catch (e) { this.settings = { ...DEFAULT_SETTINGS }; }
+    // One-time switch to voice-scored quizzing (Jason's request, 2026-07-14).
+    if (!this.settings.echoMigrated) {
+      this.settings.echoMigrated = true;
+      this.settings.quizMode = "listen";
+      this.saveSettings();
+    }
     for (const e of ANSWER_BANK) {
       if (!this.state[e.id]) this.state[e.id] = defaultEntryState();
     }

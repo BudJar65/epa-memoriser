@@ -14,6 +14,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import sys
 
 import edge_tts
@@ -30,6 +31,17 @@ ITERATIONS = 200_000
 CONCURRENCY = 4
 
 
+def sentence_chunks(beats):
+    """Sentence-sized chunks — MUST mirror chunkify() in js/app.js."""
+    out = []
+    for b in beats:
+        for s in re.split(r"(?<=[.!?])\s+", b):
+            s = s.strip()
+            if s:
+                out.append(s)
+    return out
+
+
 def build_clip_list(bank):
     """Map clip-key -> text to speak."""
     clips = {
@@ -37,12 +49,22 @@ def build_clip_list(bank):
         "g-whereev": "Where do you evidence that?",
         "g-clean": "Clean recall!",
         "g-notclean": "Not clean yet. It will come back soon.",
+        "g-speed": "This is my speaking speed.",
     }
+    # Every possible session/drill score line, so results aren't robotic.
+    for n in range(1, 11):
+        for c in range(0, n + 1):
+            clips[f"g-sess-{c}-{n}"] = f"Session done. {c} out of {n} clean recalls."
+    for n in range(1, 19):
+        for r in range(0, n + 1):
+            clips[f"g-drill-{r}-{n}"] = f"{r} out of {n} evidence locations nailed."
     for e in bank:
         i = e["id"]
         clips[f"e{i}-intro"] = f"{e['ksb']}. {e['topic']}. Memory hook: {e['mnemonic']}"
         for b, beat in enumerate(e["beats"]):
             clips[f"e{i}-beat{b}"] = beat
+        for k, s in enumerate(sentence_chunks(e["beats"])):
+            clips[f"e{i}-c{k}"] = s
         for q, question in enumerate(e["questions"]):
             clips[f"e{i}-q{q}"] = question
         clips[f"e{i}-sayfirst"] = e["sayFirst"]
@@ -97,16 +119,26 @@ def main():
             or not os.path.exists(os.path.join(AUDIO_DIR, f"{k}.enc"))]
     print(f"{len(clips)} clips total, generating {len(todo)}")
 
-    salt = os.urandom(16)
+    # Reuse the previous salt when possible so unchanged clips keep their
+    # existing .enc files — phones then only re-download what actually changed.
+    manifest_path = os.path.join(AUDIO_DIR, "manifest.json")
+    salt = None
+    salt_reused = False
+    if os.path.exists(manifest_path) and not force:
+        try:
+            old_m = json.load(open(manifest_path, encoding="utf-8"))
+            if old_m.get("iterations") == ITERATIONS:
+                salt = base64.b64decode(old_m["salt"])
+                salt_reused = True
+        except Exception:
+            pass
+    if salt is None:
+        salt = os.urandom(16)
     kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt,
                      iterations=ITERATIONS)
     key = kdf.derive(passphrase.encode("utf-8"))
     aes = AESGCM(key)
 
-    # NOTE: changing the salt means ALL clips must be re-encrypted, so when
-    # doing an incremental build we regenerate audio only for changed text but
-    # must re-encrypt everything. Simplest correct approach: keep raw MP3s in
-    # a local cache dir (gitignored) and encrypt all of them fresh each run.
     raw_dir = os.path.join(AUDIO_DIR, ".raw")
     os.makedirs(raw_dir, exist_ok=True)
     missing_raw = [k for k in clips
@@ -120,18 +152,25 @@ def main():
         print(f"Synthesised {len(results)} clips")
 
     ok = []
-    total_bytes = 0
+    encrypted = 0
     for k in clips:
         raw_path = os.path.join(raw_dir, f"{k}.mp3")
+        enc_path = os.path.join(AUDIO_DIR, f"{k}.enc")
         if not os.path.exists(raw_path):
             print(f"  MISSING {k} — will fall back to device voice")
+            continue
+        # Skip re-encryption when the salt is unchanged, the clip text is
+        # unchanged and the .enc already exists.
+        if (salt_reused and k not in todo and os.path.exists(enc_path)
+                and old_hashes.get(k) == new_hashes[k]):
+            ok.append(k)
             continue
         data = open(raw_path, "rb").read()
         iv = os.urandom(12)
         enc = iv + aes.encrypt(iv, data, None)
-        with open(os.path.join(AUDIO_DIR, f"{k}.enc"), "wb") as f:
+        with open(enc_path, "wb") as f:
             f.write(enc)
-        total_bytes += len(enc)
+        encrypted += 1
         ok.append(k)
 
     manifest = {
@@ -144,7 +183,7 @@ def main():
         json.dump(manifest, f)
     with open(hash_path, "w", encoding="utf-8") as f:
         json.dump(new_hashes, f)
-    print(f"Encrypted {len(ok)} clips, {total_bytes/1e6:.1f} MB -> audio/")
+    print(f"{len(ok)} clips in manifest, {encrypted} newly encrypted -> audio/")
 
 
 if __name__ == "__main__":

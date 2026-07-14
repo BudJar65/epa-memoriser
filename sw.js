@@ -1,5 +1,5 @@
 // Service worker: caches the app so it works offline (e.g. patchy signal on a walk).
-const CACHE = "epa-memoriser-v6";
+const CACHE = "epa-memoriser-v7";
 const ASSETS = [
   ".",
   "index.html",

@@ -27,7 +27,6 @@ function firstLetterCue(text) {
 
 // ---- Narration helpers: map spoken content to its pre-generated clip keys ----
 function beatKeys(entry) { return entry.beats.map((_, i) => `e${entry.id}-beat${i}`); }
-function speakLearnBeat(i) { Voice.speak(learn.entry.beats[i], null, [`e${learn.entry.id}-beat${i}`]); }
 function speakLearnFull() { Voice.speak(learn.entry.beats.join(" "), null, beatKeys(learn.entry)); }
 function speakQuizQuestion() { Voice.speak(quiz.question, null, [`e${quizEntry().id}-q${quiz.qIndex}`]); }
 function speakQuizAnswer() { const e = quizEntry(); Voice.speak(e.beats.join(" "), null, beatKeys(e)); }
@@ -107,22 +106,104 @@ function renderHome() {
 }
 
 // ---------------------------------------------------------------- LEARN
-// Guided flow: intro -> beats (build up) -> first-letter cue -> done.
+// Echo method: see one sentence-sized chunk -> it's hidden -> you say it
+// back from memory -> the mic transcript is checked word by word. Then
+// the whole answer from first-letter hints only.
 let learn = null;
+
+// Split the answer into sentence-sized chunks (mirrors tools/build_audio.py
+// so each chunk has a matching narrated clip e{id}-c{n}).
+function chunkify(entry) {
+  const out = [];
+  entry.beats.forEach(b => {
+    b.split(/(?<=[.!?])\s+/).forEach(s => { s = s.trim(); if (s) out.push(s); });
+  });
+  return out;
+}
+
+// Small filler words don't count towards the echo score.
+const STOPWORDS = new Set("a an the and or of to in on by for with as at is are was were it its this that these those i my me so then than be been which into from their they them we our you your also had has have not but".split(" "));
+
+function normWords(s) {
+  return (s || "").toLowerCase().replace(/[’']/g, "")
+    .replace(/[^a-z0-9\s-]/g, " ").replace(/-/g, " ")
+    .split(/\s+/).filter(Boolean);
+}
+
+// Fraction of the chunk's content words that appeared in the transcript.
+function echoScore(target, spoken) {
+  const spokenSet = new Set(normWords(spoken));
+  let content = 0, hit = 0;
+  for (const w of normWords(target)) {
+    if (STOPWORDS.has(w)) continue;
+    content++;
+    if (spokenSet.has(w)) hit++;
+  }
+  return content ? hit / content : 1;
+}
+
+// The chunk text with each word coloured by whether it was heard.
+function echoDiffHtml(target, spoken) {
+  const spokenSet = new Set(normWords(spoken));
+  return target.split(/\s+/).map(tok => {
+    const words = normWords(tok);
+    if (!words.length || words.every(w => STOPWORDS.has(w))) return esc(tok);
+    const ok = words.every(w => STOPWORDS.has(w) || spokenSet.has(w));
+    return `<span class="${ok ? "kp-hit" : "kp-miss"}">${esc(tok)}</span>`;
+  }).join(" ");
+}
 
 function startLearn(id) {
   const entry = ANSWER_BANK.find(e => e.id === id);
-  learn = { entry, step: 0 }; // step 0 = intro, 1..beats = build, last = cue
+  learn = { entry, chunks: chunkify(entry), stage: "intro", idx: 0,
+            phase: "show", transcript: "", result: null };
+  renderLearn();
+}
+
+function chunkClipKey() { return `e${learn.entry.id}-c${learn.idx}`; }
+function speakChunk() { Voice.speak(learn.chunks[learn.idx], null, [chunkClipKey()]); }
+
+function chunkDots() {
+  return `<p class="chunk-dots">${learn.chunks.map((_, i) =>
+    `<span class="dot ${i < learn.idx ? "dot-on" : i === learn.idx ? "dot-now" : ""}"></span>`).join("")}</p>`;
+}
+
+function learnEcho() {
+  Voice.stopSpeaking();
+  learn.transcript = "";
+  const ok = Voice.startListening(t => {
+    if (t === null) { Voice.stopListening(); learn.phase = "hiddenself"; renderLearn(); return; }
+    learn.transcript = t;
+    const el = $("#live-transcript");
+    if (el) el.textContent = t || "…";
+  });
+  learn.phase = ok ? "echo" : "hiddenself";
+  renderLearn();
+}
+
+function learnEchoDone() {
+  learn.transcript = Voice.stopListening();
+  learn.result = echoScore(learn.chunks[learn.idx], learn.transcript);
+  learn.phase = "check";
+  renderLearn();
+}
+
+function learnNextChunk() {
+  Voice.stopSpeaking();
+  if (learn.idx < learn.chunks.length - 1) {
+    learn.idx += 1; learn.phase = "show"; learn.transcript = ""; learn.result = null;
+  } else {
+    learn.stage = "cue";
+  }
   renderLearn();
 }
 
 function renderLearn() {
-  const { entry, step } = learn;
-  const nBeats = entry.beats.length;
-  const totalSteps = nBeats + 2; // intro + beats + cue
+  const { entry, chunks, stage, idx, phase } = learn;
+  let body = "", controls = "", label = "";
 
-  let body, controls;
-  if (step === 0) {
+  if (stage === "intro") {
+    label = "intro";
     body = `
       <div class="learn-intro">
         <p class="ksb-line"><b>${esc(entry.ksb)}</b> — ${esc(entry.topic)}</p>
@@ -134,21 +215,76 @@ function renderLearn() {
         <div class="card hook"><b>🪝 Memory hook</b><p>${esc(entry.mnemonic)}</p></div>
         <div class="card"><b>📄 Say first (evidence)</b><p>“${esc(entry.sayFirst)}”</p></div>
       </div>`;
-    controls = `<button class="btn btn-primary btn-big" onclick="learnNext()">Start learning the answer</button>`;
+    controls = `<button class="btn btn-primary btn-big" onclick="learn.stage='chunk';renderLearn()">Start learning the answer</button>`;
     Voice.speak(`${entry.ksb}. ${entry.topic}. Memory hook: ${entry.mnemonic}`, null, [`e${entry.id}-intro`]);
-  } else if (step <= nBeats) {
-    // Cumulative beats: show all beats up to `step`, newest highlighted.
-    const shown = entry.beats.slice(0, step);
-    body = `
-      <p class="step-label">Chunk ${step} of ${nBeats} — read it, say it out loud, then continue.</p>
-      ${shown.map((b, i) => `<div class="card beat ${i === step - 1 ? "beat-new" : "beat-old"}">${esc(b)}</div>`).join("")}
-    `;
-    controls = `
-      <button class="btn" onclick="speakLearnBeat(${step - 1})">🔊 Read chunk aloud</button>
-      <button class="btn btn-primary btn-big" onclick="learnNext()">${step === nBeats ? "Now try with hints only" : "Got it — next chunk"}</button>`;
-    speakLearnBeat(step - 1);
-  } else {
-    // First-letter cue stage
+  }
+
+  else if (stage === "chunk") {
+    label = `chunk ${idx + 1} of ${chunks.length}`;
+    const chunk = chunks[idx];
+
+    if (phase === "show") {
+      body = `${chunkDots()}
+        <p class="step-label">Read it and listen — then say it back with the text hidden:</p>
+        <div class="card beat beat-new">${esc(chunk)}</div>`;
+      controls = `
+        <button class="btn" onclick="speakChunk()">🔊 Hear it again</button>
+        <button class="btn btn-primary btn-big" onclick="learnEcho()">Hide it — I'll say it back</button>`;
+      speakChunk();
+    }
+
+    else if (phase === "echo") {
+      body = `${chunkDots()}
+        <div class="card listening">
+          <p class="mic-live">🎤 Say it from memory…</p>
+          <p class="cue">${esc(firstLetterCue(chunk))}</p>
+          <p class="transcript" id="live-transcript">${esc(learn.transcript || "…")}</p>
+        </div>`;
+      controls = `
+        <button class="btn btn-primary btn-big" onclick="learnEchoDone()">⏹ I've said it</button>
+        <button class="btn btn-ghost" onclick="Voice.stopListening();learn.phase='show';renderLearn()">Show it again</button>`;
+    }
+
+    else if (phase === "check") {
+      const pct = Math.round(learn.result * 100);
+      const pass = learn.result >= 0.7;
+      body = `${chunkDots()}
+        <div class="card result ${pass ? "result-good" : "result-bad"}">
+          <p class="result-title">${pass ? "✅" : "🔁"} You echoed ${pct}% of the key words</p>
+        </div>
+        <div class="card beat">${echoDiffHtml(chunk, learn.transcript)}</div>
+        <details class="peek"><summary>What I heard</summary><p>${esc(learn.transcript || "(nothing)")}</p></details>`;
+      controls = pass ? `
+        <button class="btn btn-primary btn-big" onclick="learnNextChunk()">${idx === chunks.length - 1 ? "Now the whole answer" : "Next chunk →"}</button>
+        <button class="btn btn-ghost" onclick="learnEcho()">Say it again anyway</button>` : `
+        <button class="btn btn-primary btn-big" onclick="learn.phase='show';renderLearn()">See it again</button>
+        <button class="btn" onclick="learnEcho()">Try again from memory</button>
+        <button class="btn btn-ghost" onclick="learnNextChunk()">Move on anyway</button>`;
+    }
+
+    else if (phase === "hiddenself") {
+      // No microphone available: hide, speak, reveal, honest self-check.
+      body = `${chunkDots()}
+        <div class="card">
+          <p class="step-label">Chunk hidden — say it out loud, then reveal:</p>
+          <p class="cue">${esc(firstLetterCue(chunk))}</p>
+        </div>`;
+      controls = `<button class="btn btn-primary btn-big" onclick="learn.phase='revealself';renderLearn()">Reveal to check</button>`;
+    }
+
+    else { // revealself
+      body = `${chunkDots()}
+        <div class="card beat beat-new">${esc(chunk)}</div>`;
+      controls = `
+        <div class="grade-row">
+          <button class="btn grade-bad" onclick="learn.phase='show';renderLearn()">Show me again</button>
+          <button class="btn grade-good" onclick="learnNextChunk()">Got it</button>
+        </div>`;
+    }
+  }
+
+  else { // cue: the whole answer from first-letter hints
+    label = "whole answer";
     const full = entry.beats.join(" ");
     body = `
       <p class="step-label">Say the whole answer out loud using only these first-letter hints:</p>
@@ -162,15 +298,13 @@ function renderLearn() {
 
   app().innerHTML = `
     <header class="top slim">
-      <button class="btn-back" onclick="renderHome()">‹ Home</button>
-      <span>Learn #${entry.id} &middot; step ${step + 1}/${totalSteps}</span>
+      <button class="btn-back" onclick="Voice.stopSpeaking();Voice.stopListening();renderHome()">‹ Home</button>
+      <span>Learn #${entry.id} &middot; ${label}</span>
     </header>
     ${body}
     <div class="controls">${controls}</div>
   `;
 }
-
-function learnNext() { learn.step += 1; renderLearn(); }
 
 function finishLearn() {
   Engine.markLearned(learn.entry.id);
@@ -425,7 +559,7 @@ function endQuiz(finished) {
       </div>
       <button class="btn btn-primary btn-big" onclick="${wasWalk ? "startWalk()" : "renderHome()"}">${wasWalk ? "Keep walking — more practice" : "Back to home"}</button>
       <button class="btn btn-ghost" onclick="renderHome()">Home</button>`;
-    Voice.speak(`Session done. ${clean} out of ${n} clean recalls.`);
+    Voice.speak(`Session done. ${clean} out of ${n} clean recalls.`, null, [`g-sess-${clean}-${n}`]);
   } else {
     quiz = null;
     renderHome();
@@ -505,7 +639,7 @@ function drillGrade(ok) {
     renderDrill();
   } else {
     const msg = `${drill.right} out of ${drill.queue.length} evidence locations nailed.`;
-    Voice.speak(msg);
+    Voice.speak(msg, null, [`g-drill-${drill.right}-${drill.queue.length}`]);
     app().innerHTML = `
       <header class="top"><h1>Drill done</h1></header>
       <div class="card result ${drill.right === drill.queue.length ? "result-good" : ""}">
@@ -612,7 +746,7 @@ function renderSettings() {
         <input type="checkbox" ${st.narration !== false ? "checked" : ""} onchange="Engine.settings.narration=this.checked;Engine.saveSettings()"></label>
       <label class="setting"><span>Speech speed</span>
         <input type="range" min="0.7" max="1.4" step="0.1" value="${st.rate}"
-          onchange="Engine.settings.rate=parseFloat(this.value);Engine.saveSettings();Voice.speak('This is my speaking speed.')"></label>
+          onchange="Engine.settings.rate=parseFloat(this.value);Engine.saveSettings();Voice.speak('This is my speaking speed.', null, ['g-speed'])"></label>
       <label class="setting"><span>Voice</span>
         <select onchange="Engine.settings.voiceName=this.value;Engine.saveSettings();Voice.init();Voice.speak('Hello Jason, I will read your answers in this voice.')">
           <option value="">Best available</option>

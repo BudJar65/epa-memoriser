@@ -118,6 +118,9 @@ body {
   background: var(--line); margin-right: 3px;
 }
 .dot-on { background: var(--good); }
+.dot-now { background: var(--accent); transform: scale(1.35); }
+.chunk-dots { text-align: center; margin: 8px 0 2px; }
+.chunk-dots .dot { width: 10px; height: 10px; margin: 0 3px; transition: all 0.2s; }
 
 .ksb-line { font-size: 1.15rem; margin: 10px 0 2px; }
 .prio { color: var(--muted); font-size: 0.85rem; margin: 0 0 8px; }

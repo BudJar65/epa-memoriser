@@ -157,31 +157,64 @@ function chunkify(entry) {
 // Small filler words don't count towards the echo score.
 const STOPWORDS = new Set("a an the and or of to in on by for with as at is are was were it its this that these those i my me so then than be been which into from their they them we our you your also had has have not but".split(" "));
 
+// Spoken number words -> digits, so "three" matches "3" in page references.
+const NUMWORDS = {
+  zero: "0", one: "1", two: "2", three: "3", four: "4", five: "5", six: "6",
+  seven: "7", eight: "8", nine: "9", ten: "10", eleven: "11", twelve: "12",
+  thirteen: "13", fourteen: "14", fifteen: "15", sixteen: "16", seventeen: "17",
+  eighteen: "18", nineteen: "19", twenty: "20", thirty: "30", forty: "40",
+  fifty: "50", sixty: "60", seventy: "70", eighty: "80", ninety: "90"
+};
+
 function normWords(s) {
   return (s || "").toLowerCase().replace(/[’']/g, "")
     .replace(/[^a-z0-9\s-]/g, " ").replace(/-/g, " ")
-    .split(/\s+/).filter(Boolean);
+    .split(/\s+/).filter(Boolean)
+    .map(w => NUMWORDS[w] || w);
+}
+
+// Crude stem so "scheduled"/"schedule" and "interviews"/"interview" match.
+function stem(w) {
+  return w.length > 4 ? w.replace(/(ing|ed|es|s|d)$/, "") : w;
+}
+
+// Everything the user said, as exact words, stems, and joined number pairs
+// ("sixty" "seven" -> "67") so matching is forgiving of transcription quirks.
+function spokenSetOf(spoken) {
+  const words = normWords(spoken);
+  const set = new Set();
+  for (let i = 0; i < words.length; i++) {
+    set.add(words[i]);
+    set.add(stem(words[i]));
+    const a = words[i], b = words[i + 1];
+    if (b && /^\d+0$/.test(a) && /^\d$/.test(b)) set.add(String(+a + +b));
+  }
+  return set;
+}
+
+function wordHeard(w, spokenSet) {
+  return spokenSet.has(w) || spokenSet.has(stem(w));
 }
 
 // Fraction of the chunk's content words that appeared in the transcript.
 function echoScore(target, spoken) {
-  const spokenSet = new Set(normWords(spoken));
+  const spokenSet = spokenSetOf(spoken);
   let content = 0, hit = 0;
   for (const w of normWords(target)) {
     if (STOPWORDS.has(w)) continue;
     content++;
-    if (spokenSet.has(w)) hit++;
+    if (wordHeard(w, spokenSet)) hit++;
   }
   return content ? hit / content : 1;
 }
 
 // The chunk text with each word coloured by whether it was heard.
 function echoDiffHtml(target, spoken) {
-  const spokenSet = new Set(normWords(spoken));
+  const spokenSet = spokenSetOf(spoken);
   return target.split(/\s+/).map(tok => {
     const words = normWords(tok);
     if (!words.length || words.every(w => STOPWORDS.has(w))) return esc(tok);
-    const ok = words.every(w => STOPWORDS.has(w) || spokenSet.has(w));
+    const ok = words.every(w => STOPWORDS.has(w) || wordHeard(w, spokenSet));
     return `<span class="${ok ? "kp-hit" : "kp-miss"}">${esc(tok)}</span>`;
   }).join(" ");
 }

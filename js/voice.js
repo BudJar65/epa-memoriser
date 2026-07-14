@@ -121,8 +121,14 @@ const Voice = {
     };
 
     // iOS Safari loves to stop early; restart while the session is active
-    // (but not while deliberately paused).
+    // (but not while deliberately paused). Crucially, keep any provisional
+    // ("interim") words captured before the stop — otherwise words the user
+    // saw in the live transcript vanish from the final one.
     rec.onend = () => {
+      if (this._interim.trim()) {
+        this._finalText += " " + this._interim;
+        this._interim = "";
+      }
       if (this._active && !this._suspended) {
         try { rec.start(); } catch (e) { /* already restarting */ }
       }

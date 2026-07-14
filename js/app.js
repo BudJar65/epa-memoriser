@@ -231,6 +231,41 @@ function learnNextChunk() {
   renderLearn();
 }
 
+function learnBackChunk() {
+  Voice.stopSpeaking(); Voice.stopListening();
+  if (learn.idx > 0) learn.idx -= 1;
+  learn.phase = "show"; learn.transcript = ""; learn.result = null;
+  renderLearn();
+}
+
+function learnRestartChunks() {
+  Voice.stopSpeaking(); Voice.stopListening();
+  learn.stage = "chunk"; learn.idx = 0; learn.phase = "show";
+  learn.transcript = ""; learn.result = null;
+  renderLearn();
+}
+
+// Whole-answer checkpoint: recite the full answer, get it word-scored.
+function learnFullEcho() {
+  Voice.stopSpeaking();
+  learn.transcript = "";
+  const ok = Voice.startListening(t => {
+    if (t === null) { Voice.stopListening(); learn.stage = "fullself"; renderLearn(); return; }
+    learn.transcript = t;
+    const el = $("#live-transcript");
+    if (el) el.textContent = t || "…";
+  });
+  learn.stage = ok ? "fullecho" : "fullself";
+  renderLearn();
+}
+
+function learnFullDone() {
+  learn.transcript = Voice.stopListening();
+  learn.result = echoScore(learn.entry.beats.join(" "), learn.transcript);
+  learn.stage = "fullcheck";
+  renderLearn();
+}
+
 function renderLearn() {
   Pause.setVisible(true);
   const { entry, chunks, stage, idx, phase } = learn;
@@ -263,7 +298,8 @@ function renderLearn() {
         <div class="card beat beat-new">${esc(chunk)}</div>`;
       controls = `
         <button class="btn" onclick="speakChunk()">🔊 Hear it again</button>
-        <button class="btn btn-primary btn-big" onclick="learnEcho()">Hide it — I'll say it back</button>`;
+        <button class="btn btn-primary btn-big" onclick="learnEcho()">Hide it — I'll say it back</button>
+        ${idx > 0 ? `<button class="btn btn-ghost" onclick="learnBackChunk()">‹ Back a chunk</button>` : ""}`;
       speakChunk();
     }
 
@@ -317,7 +353,8 @@ function renderLearn() {
     }
   }
 
-  else { // cue: the whole answer from first-letter hints
+  else if (stage === "cue") {
+    // Whole-answer checkpoint: loop here as long as you like.
     label = "whole answer";
     const full = entry.beats.join(" ");
     body = `
@@ -326,8 +363,56 @@ function renderLearn() {
       <details class="peek"><summary>Peek at the full answer</summary><p>${esc(full)}</p></details>
       <div class="card hook"><b>🪝</b> ${esc(entry.mnemonic)}</div>`;
     controls = `
+      <button class="btn btn-primary btn-big" onclick="learnFullEcho()">🎤 Say the whole answer — check me</button>
       <button class="btn" onclick="speakLearnFull()">🔊 Hear it once more</button>
-      <button class="btn btn-primary btn-big" onclick="finishLearn()">Done — quiz me on it</button>`;
+      <button class="btn" onclick="learnRestartChunks()">↩ Practise the chunks again</button>
+      <button class="btn btn-ghost" onclick="finishLearn()">Skip the check — quiz me</button>`;
+  }
+
+  else if (stage === "fullecho") {
+    label = "whole answer";
+    body = `
+      <div class="card listening">
+        <p class="mic-live">🎤 Say the whole answer…</p>
+        <p class="cue">${esc(firstLetterCue(entry.beats.join(" ")))}</p>
+        <p class="transcript" id="live-transcript">${esc(learn.transcript || "…")}</p>
+      </div>`;
+    controls = `
+      <button class="btn btn-primary btn-big" onclick="learnFullDone()">⏹ I've said it</button>
+      <button class="btn btn-ghost" onclick="Voice.stopListening();learn.stage='cue';renderLearn()">Cancel</button>`;
+  }
+
+  else if (stage === "fullcheck") {
+    label = "whole answer";
+    const full = entry.beats.join(" ");
+    const pct = Math.round(learn.result * 100);
+    const pass = learn.result >= 0.7;
+    body = `
+      <div class="card result ${pass ? "result-good" : "result-bad"}">
+        <p class="result-title">${pass ? `✅ ${pct}% — you've got it` : `🔁 ${pct}% — not quite yet`}</p>
+      </div>
+      <div class="card beat">${echoDiffHtml(full, learn.transcript)}</div>
+      <details class="peek"><summary>What I heard</summary><p>${esc(learn.transcript || "(nothing)")}</p></details>`;
+    controls = pass ? `
+      <button class="btn btn-primary btn-big" onclick="finishLearn()">Done — quiz me on it</button>
+      <button class="btn" onclick="learnFullEcho()">🎤 Say it again</button>
+      <button class="btn btn-ghost" onclick="learnRestartChunks()">↩ Practise the chunks again</button>` : `
+      <button class="btn btn-primary btn-big" onclick="learnRestartChunks()">↩ Practise the chunks again</button>
+      <button class="btn" onclick="learnFullEcho()">🎤 Say it again</button>
+      <button class="btn btn-ghost" onclick="finishLearn()">Quiz me anyway</button>`;
+  }
+
+  else { // fullself: no microphone — reveal and judge honestly
+    label = "whole answer";
+    const full = entry.beats.join(" ");
+    body = `
+      <p class="step-label">No mic available — say it out loud, then compare:</p>
+      <div class="card beat">${esc(full)}</div>`;
+    controls = `
+      <div class="grade-row">
+        <button class="btn grade-bad" onclick="learnRestartChunks()">↩ Chunks again</button>
+        <button class="btn grade-good" onclick="finishLearn()">Got it — quiz me</button>
+      </div>`;
   }
 
   app().innerHTML = `

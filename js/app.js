@@ -469,16 +469,50 @@ function renderQuiz() {
   }
 
   else if (quiz.phase === "evidence") {
-    if (!quiz.evOptions) {
-      const others = shuffle(ANSWER_BANK.filter(e => e.id !== entry.id)).slice(0, 2).map(e => e.sayFirst);
-      quiz.evOptions = shuffle([entry.sayFirst, ...others]);
+    const spokenEv = mode === "listen" && Voice.sttSupported() && !quiz.forceEvMc;
+    if (spokenEv) {
+      body = `
+        <div class="card question-card"><p class="q-label">Assessor: “Where do you evidence that?”</p></div>
+        <p class="hint">Say it out loud: document, pages, heading.</p>`;
+      controls = `
+        <button class="btn btn-primary btn-big" onclick="quizEvListen()">🎤 I'll say it — listen</button>
+        <button class="btn btn-ghost" onclick="quiz.forceEvMc=true;renderQuiz()">Show me choices instead</button>`;
+    } else {
+      if (!quiz.evOptions) {
+        const others = shuffle(ANSWER_BANK.filter(e => e.id !== entry.id)).slice(0, 2).map(e => e.sayFirst);
+        quiz.evOptions = shuffle([entry.sayFirst, ...others]);
+      }
+      body = `
+        <div class="card question-card"><p class="q-label">Assessor: “Where do you evidence that?”</p></div>
+        <div class="mc">${quiz.evOptions.map((o, i) =>
+          `<button class="btn mc-opt mc-long" onclick="quizPickEv(${i})">${esc(o)}</button>`).join("")}</div>`;
+      controls = "";
     }
+    if (quiz.walk || spokenEv) Voice.speak("Where do you evidence that?", null, ["g-whereev"]);
+  }
+
+  else if (quiz.phase === "evlisten") {
     body = `
-      <div class="card question-card"><p class="q-label">Assessor: “Where do you evidence that?”</p></div>
-      <div class="mc">${quiz.evOptions.map((o, i) =>
-        `<button class="btn mc-opt mc-long" onclick="quizPickEv(${i})">${esc(o)}</button>`).join("")}</div>`;
-    controls = "";
-    if (quiz.walk) Voice.speak("Where do you evidence that?", null, ["g-whereev"]);
+      <div class="card listening">
+        <p class="mic-live">🎤 Say the evidence location…</p>
+        <p class="transcript" id="live-transcript">${esc(quiz.transcriptEv || "…")}</p>
+      </div>`;
+    controls = `<button class="btn btn-primary btn-big" onclick="quizEvDone()">⏹ I've said it</button>`;
+  }
+
+  else if (quiz.phase === "evcheck") {
+    const pass = quiz.evScore >= 0.5;
+    body = `
+      <div class="card result ${pass ? "result-good" : "result-bad"}">
+        <p class="result-title">${pass ? "✅ Evidence location right" : "🔁 Evidence location shaky"} (${Math.round(quiz.evScore * 100)}%)</p>
+      </div>
+      <div class="card"><p class="q-label">You should say:</p>
+        <p>${echoDiffHtml(entry.sayFirst, quiz.transcriptEv)}</p></div>
+      <details class="peek"><summary>What I heard</summary><p>${esc(quiz.transcriptEv || "(nothing)")}</p></details>`;
+    controls = `
+      <button class="btn btn-primary btn-big" onclick="recordEv(${pass})">Continue</button>
+      <button class="btn btn-ghost" onclick="recordEv(${!pass})">${pass ? "Actually, I got it wrong" : "It was right, the mic misheard"}</button>`;
+    Voice.speak(entry.sayFirst, null, [`e${entry.id}-sayfirst`]);
   }
 
   else if (quiz.phase === "result") {
@@ -493,7 +527,12 @@ function renderQuiz() {
       <div class="card hook"><b>If probed, add:</b><p>${esc(entry.probe)}</p></div>
       <div class="card"><b>📄 Evidence:</b><p>${esc(entry.evidence.primary)}</p></div>`;
     const more = quiz.idx < quiz.queue.length - 1;
-    controls = `<button class="btn btn-primary btn-big" onclick="quizNext()">${more ? "Next answer →" : "Finish session"}</button>`;
+    const nextLabel = more ? "Next answer →" : "Finish session";
+    controls = r.clean
+      ? `<button class="btn btn-primary btn-big" onclick="quizNext()">${nextLabel}</button>
+         <button class="btn btn-ghost" onclick="quizRedo()">🔁 Redo it anyway</button>`
+      : `<button class="btn btn-primary btn-big" onclick="quizRedo()">🔁 Redo this answer now</button>
+         <button class="btn" onclick="quizNext()">${nextLabel}</button>`;
     if (quiz.walk) {
       Voice.speak(
         (r.clean ? "Clean recall. " : "Not clean yet. ") + "If probed, add: " + entry.probe,
@@ -554,24 +593,65 @@ function quizPickKsb(pick) {
   renderQuiz();
 }
 
-function quizPickEv(i) {
-  quiz.evOk = quiz.evOptions[i] === quizEntry().sayFirst;
+function quizPickEv(i) { recordEv(quiz.evOptions[i] === quizEntry().sayFirst); }
+
+function quizEvListen() {
+  quiz.transcriptEv = "";
+  const ok = Voice.startListening(t => {
+    if (t === null) { quiz.forceEvMc = true; quiz.phase = "evidence"; renderQuiz(); return; }
+    quiz.transcriptEv = t;
+    const el = $("#live-transcript");
+    if (el) el.textContent = t || "…";
+  });
+  if (!ok) { quiz.forceEvMc = true; quiz.phase = "evidence"; renderQuiz(); return; }
+  quiz.phase = "evlisten";
+  renderQuiz();
+}
+
+function quizEvDone() {
+  quiz.transcriptEv = Voice.stopListening();
+  quiz.evScore = echoScore(quizEntry().sayFirst, quiz.transcriptEv);
+  quiz.phase = "evcheck";
+  renderQuiz();
+}
+
+function recordEv(ok) {
+  quiz.evOk = ok;
   const entry = quizEntry();
-  const { clean } = Engine.recordResult(entry.id, quiz.scoreInfo.score, quiz.ksbOk, quiz.evOk);
-  quiz.results.push({ id: entry.id, score: quiz.scoreInfo.score, ksbOk: quiz.ksbOk, evOk: quiz.evOk, clean });
+  const { clean } = Engine.recordResult(entry.id, quiz.scoreInfo.score, quiz.ksbOk, ok);
+  quiz.results.push({ id: entry.id, score: quiz.scoreInfo.score, ksbOk: quiz.ksbOk, evOk: ok, clean });
+  // Not clean: put this answer back at the end of the session queue so it
+  // comes around again before the session finishes.
+  if (!clean && quiz.queue.length < 15 && !quiz.queue.slice(quiz.idx + 1).includes(entry.id)) {
+    quiz.queue.push(entry.id);
+  }
   quiz.phase = "result";
+  renderQuiz();
+}
+
+function resetQuizItem() {
+  quiz.phase = "question";
+  quiz.question = null;
+  quiz.ksbOptions = null;
+  quiz.evOptions = null;
+  quiz.forceEvMc = false;
+  quiz.transcript = "";
+  quiz.transcriptEv = "";
+  quiz.evScore = null;
+  quiz.scoreInfo = null;
+}
+
+// Immediately re-test the same answer (fresh question) without moving on.
+function quizRedo() {
+  Voice.stopSpeaking();
+  resetQuizItem();
   renderQuiz();
 }
 
 function quizNext() {
   if (quiz.idx < quiz.queue.length - 1) {
     quiz.idx += 1;
-    quiz.phase = "question";
-    quiz.question = null;
-    quiz.ksbOptions = null;
-    quiz.evOptions = null;
-    quiz.transcript = "";
-    quiz.scoreInfo = null;
+    resetQuizItem();
     renderQuiz();
   } else {
     endQuiz(true);

@@ -8,3 +8,8 @@
 # The readable answer bank stays local; only the encrypted data.enc.json
 # is committed. Rebuild it with: python tools/encrypt_data.py "passphrase"
 js/data.js
+
+# Unencrypted narration audio stays local; only audio/*.enc is committed.
+audio/.raw/
+audio/.hashes.json
+tools/__pycache__/

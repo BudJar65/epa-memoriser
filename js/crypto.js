@@ -33,6 +33,10 @@ const DataLock = {
     window.ANSWER_BANK = payload.bank;
     window.ANSWER_STRUCTURE = payload.structure;
     localStorage.setItem(this.PASS_KEY, passphrase);
+    // Set up narrated audio (non-fatal if absent) and cache clips for offline.
+    if (typeof AudioPlayer !== "undefined") {
+      AudioPlayer.init(passphrase).then(ok => { if (ok) AudioPlayer.prefetch(); });
+    }
     return true;
   },
 

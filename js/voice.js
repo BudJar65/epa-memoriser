@@ -57,9 +57,16 @@ const Voice = {
     document.addEventListener("click", prime);
   },
 
-  speak(text, onDone) {
-    if (!this.synth || !Engine.settings.voiceOn) { if (onDone) onDone(); return; }
+  // speak(text, onDone, clipKeys): if narrated clips exist for clipKeys,
+  // play those (studio voice); otherwise fall back to device text-to-speech.
+  speak(text, onDone, clipKeys) {
+    if (!Engine.settings.voiceOn) { if (onDone) onDone(); return; }
     this.stopSpeaking();
+    if (clipKeys && typeof AudioPlayer !== "undefined" && AudioPlayer.hasAll(clipKeys)) {
+      AudioPlayer.playSeq(clipKeys, onDone);
+      return;
+    }
+    if (!this.synth) { if (onDone) onDone(); return; }
     const u = new SpeechSynthesisUtterance(text);
     if (this.ukVoice) u.voice = this.ukVoice;
     u.lang = "en-GB";
@@ -70,6 +77,7 @@ const Voice = {
 
   stopSpeaking() {
     if (this.synth) this.synth.cancel();
+    if (typeof AudioPlayer !== "undefined") AudioPlayer.stop();
   },
 
   // ---- Speech recognition ----

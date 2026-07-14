@@ -25,6 +25,14 @@ function firstLetterCue(text) {
   }).join(" ");
 }
 
+// ---- Narration helpers: map spoken content to its pre-generated clip keys ----
+function beatKeys(entry) { return entry.beats.map((_, i) => `e${entry.id}-beat${i}`); }
+function speakLearnBeat(i) { Voice.speak(learn.entry.beats[i], null, [`e${learn.entry.id}-beat${i}`]); }
+function speakLearnFull() { Voice.speak(learn.entry.beats.join(" "), null, beatKeys(learn.entry)); }
+function speakQuizQuestion() { Voice.speak(quiz.question, null, [`e${quizEntry().id}-q${quiz.qIndex}`]); }
+function speakQuizAnswer() { const e = quizEntry(); Voice.speak(e.beats.join(" "), null, beatKeys(e)); }
+function speakEntryAnswer(id) { const e = ANSWER_BANK.find(x => x.id === id); Voice.speak(e.beats.join(" "), null, beatKeys(e)); }
+
 function stageBadge(s) {
   const map = {
     new: ["New", "badge-new"],
@@ -127,7 +135,7 @@ function renderLearn() {
         <div class="card"><b>📄 Say first (evidence)</b><p>“${esc(entry.sayFirst)}”</p></div>
       </div>`;
     controls = `<button class="btn btn-primary btn-big" onclick="learnNext()">Start learning the answer</button>`;
-    Voice.speak(`${entry.ksb}. ${entry.topic}. Memory hook: ${entry.mnemonic}`);
+    Voice.speak(`${entry.ksb}. ${entry.topic}. Memory hook: ${entry.mnemonic}`, null, [`e${entry.id}-intro`]);
   } else if (step <= nBeats) {
     // Cumulative beats: show all beats up to `step`, newest highlighted.
     const shown = entry.beats.slice(0, step);
@@ -136,9 +144,9 @@ function renderLearn() {
       ${shown.map((b, i) => `<div class="card beat ${i === step - 1 ? "beat-new" : "beat-old"}">${esc(b)}</div>`).join("")}
     `;
     controls = `
-      <button class="btn" onclick="Voice.speak(learn.entry.beats[${step - 1}])">🔊 Read chunk aloud</button>
+      <button class="btn" onclick="speakLearnBeat(${step - 1})">🔊 Read chunk aloud</button>
       <button class="btn btn-primary btn-big" onclick="learnNext()">${step === nBeats ? "Now try with hints only" : "Got it — next chunk"}</button>`;
-    Voice.speak(entry.beats[step - 1]);
+    speakLearnBeat(step - 1);
   } else {
     // First-letter cue stage
     const full = entry.beats.join(" ");
@@ -148,7 +156,7 @@ function renderLearn() {
       <details class="peek"><summary>Peek at the full answer</summary><p>${esc(full)}</p></details>
       <div class="card hook"><b>🪝</b> ${esc(entry.mnemonic)}</div>`;
     controls = `
-      <button class="btn" onclick="Voice.speak(learn.entry.beats.join(' '))">🔊 Hear it once more</button>
+      <button class="btn" onclick="speakLearnFull()">🔊 Hear it once more</button>
       <button class="btn btn-primary btn-big" onclick="finishLearn()">Done — quiz me on it</button>`;
   }
 
@@ -208,7 +216,11 @@ function renderQuiz() {
   const entry = quizEntry();
   const s = Engine.entry(entry.id);
   const mode = Engine.settings.quizMode;
-  const q = quiz.question || (quiz.question = entry.questions[Math.floor(Math.random() * entry.questions.length)]);
+  if (!quiz.question) {
+    quiz.qIndex = Math.floor(Math.random() * entry.questions.length);
+    quiz.question = entry.questions[quiz.qIndex];
+  }
+  const q = quiz.question;
   let body = "", controls = "";
 
   if (quiz.phase === "question") {
@@ -220,15 +232,15 @@ function renderQuiz() {
       <p class="hint">Answer out loud in 30–45 seconds. Remember: evidence location first.</p>`;
     if (mode === "listen" && Voice.sttSupported()) {
       controls = `
-        <button class="btn" onclick="Voice.speak(quiz.question)">🔊 Repeat question</button>
+        <button class="btn" onclick="speakQuizQuestion()">🔊 Repeat question</button>
         <button class="btn btn-primary btn-big" onclick="quizListen()">🎤 I'm answering — listen</button>
         <button class="btn btn-ghost" onclick="quizReveal()">Skip mic — self-grade instead</button>`;
     } else {
       controls = `
-        <button class="btn" onclick="Voice.speak(quiz.question)">🔊 Repeat question</button>
+        <button class="btn" onclick="speakQuizQuestion()">🔊 Repeat question</button>
         <button class="btn btn-primary btn-big" onclick="quizReveal()">I've answered — show me the answer</button>`;
     }
-    Voice.speak(q);
+    speakQuizQuestion();
   }
 
   else if (quiz.phase === "listening") {
@@ -265,7 +277,7 @@ function renderQuiz() {
       </div>
       <p class="hint">Be honest — the schedule only works if the grading is true.</p>`;
     controls = `
-      <button class="btn" onclick="Voice.speak(quizEntry().beats.join(' '))">🔊 Read answer</button>
+      <button class="btn" onclick="speakQuizAnswer()">🔊 Read answer</button>
       <div class="grade-row">
         <button class="btn grade-bad" onclick="quizSelfGrade(0)">Missed it</button>
         <button class="btn grade-mid" onclick="quizSelfGrade(0.6)">Partly</button>
@@ -284,7 +296,7 @@ function renderQuiz() {
       <div class="mc">${quiz.ksbOptions.map(o =>
         `<button class="btn mc-opt" onclick="quizPickKsb('${esc(o)}')">${esc(o)}</button>`).join("")}</div>`;
     controls = "";
-    if (quiz.walk) Voice.speak("Which K S B is this?");
+    if (quiz.walk) Voice.speak("Which K S B is this?", null, ["g-whichksb"]);
   }
 
   else if (quiz.phase === "evidence") {
@@ -297,7 +309,7 @@ function renderQuiz() {
       <div class="mc">${quiz.evOptions.map((o, i) =>
         `<button class="btn mc-opt mc-long" onclick="quizPickEv(${i})">${esc(o)}</button>`).join("")}</div>`;
     controls = "";
-    if (quiz.walk) Voice.speak("Where do you evidence that?");
+    if (quiz.walk) Voice.speak("Where do you evidence that?", null, ["g-whereev"]);
   }
 
   else if (quiz.phase === "result") {
@@ -316,7 +328,8 @@ function renderQuiz() {
     if (quiz.walk) {
       Voice.speak(
         (r.clean ? "Clean recall. " : "Not clean yet. ") + "If probed, add: " + entry.probe,
-        Engine.settings.autoAdvance ? () => setTimeout(() => { if (quiz && quiz.phase === "result") quizNext(); }, 1500) : null
+        Engine.settings.autoAdvance ? () => setTimeout(() => { if (quiz && quiz.phase === "result") quizNext(); }, 1500) : null,
+        [r.clean ? "g-clean" : "g-notclean", `e${entry.id}-probe`]
       );
     }
   }
@@ -453,7 +466,7 @@ function renderDrill() {
       </div>
       <p class="hint">Say the location out loud, fast. Document, page, heading.</p>`;
     controls = `<button class="btn btn-primary btn-big" onclick="drill.revealed=true;renderDrill()">Reveal location</button>`;
-    Voice.speak(`Where do you evidence ${entry.ksb}, ${entry.topic}?`);
+    Voice.speak(`Where do you evidence ${entry.ksb}, ${entry.topic}?`, null, [`e${entry.id}-drill`]);
   } else {
     body = `
       <div class="card">
@@ -472,7 +485,7 @@ function renderDrill() {
         <button class="btn grade-bad" onclick="drillGrade(false)">Missed it</button>
         <button class="btn grade-good" onclick="drillGrade(true)">Nailed it</button>
       </div>`;
-    Voice.speak(entry.sayFirst);
+    Voice.speak(entry.sayFirst, null, [`e${entry.id}-sayfirst`]);
   }
   app().innerHTML = `
     <header class="top slim">
@@ -553,7 +566,7 @@ function renderDetail(id) {
       </details>` : ""}
     </div>
     <div class="controls">
-      <button class="btn" onclick="Voice.speak(ANSWER_BANK.find(x=>x.id===${e.id}).beats.join(' '))">🔊 Read answer aloud</button>
+      <button class="btn" onclick="speakEntryAnswer(${e.id})">🔊 Read answer aloud</button>
       <button class="btn btn-primary" onclick="startLearn(${e.id})">Learn / relearn this</button>
       <button class="btn" onclick="Engine.markLearned(${e.id});startQuiz([${e.id}])">Test me on this now</button>
     </div>
@@ -595,6 +608,8 @@ function renderSettings() {
     <div class="card">
       <label class="setting"><span>Voice (read aloud)</span>
         <input type="checkbox" ${st.voiceOn ? "checked" : ""} onchange="Engine.settings.voiceOn=this.checked;Engine.saveSettings()"></label>
+      <label class="setting"><span>Narrated audio (studio voice)</span>
+        <input type="checkbox" ${st.narration !== false ? "checked" : ""} onchange="Engine.settings.narration=this.checked;Engine.saveSettings()"></label>
       <label class="setting"><span>Speech speed</span>
         <input type="range" min="0.7" max="1.4" step="0.1" value="${st.rate}"
           onchange="Engine.settings.rate=parseFloat(this.value);Engine.saveSettings();Voice.speak('This is my speaking speed.')"></label>

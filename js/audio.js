@@ -53,19 +53,47 @@ const AudioPlayer = {
 
   stop() {
     this.seq++;
+    this._pausedClip = false;
     if (this.el) { try { this.el.pause(); } catch (e) {} }
   },
+
+  _pausedClip: false,
+
+  // Global pause: freeze the current clip in place; resume continues it.
+  pauseClip() {
+    if (this.el && this.el.src && !this.el.paused) {
+      try { this.el.pause(); this._pausedClip = true; } catch (e) {}
+    }
+  },
+
+  resumeClip() {
+    if (this.el && this._pausedClip) {
+      this._pausedClip = false;
+      try { this.el.play(); } catch (e) {}
+    }
+  },
+
+  _sleep(ms) { return new Promise(r => setTimeout(r, ms)); },
 
   // Play clips one after another; onDone fires only if not interrupted.
   async playSeq(keys, onDone) {
     const token = ++this.seq;
     try {
+      // iOS lowers ("ducks") media volume while the mic session winds down —
+      // wait it out so narration starts at full volume.
+      const sinceMic = Date.now() - (Voice.lastMicStop || 0);
+      if (sinceMic < 700) await this._sleep(700 - sinceMic);
       for (const k of keys) {
         if (token !== this.seq) return;
+        while (typeof Pause !== "undefined" && Pause.paused) {
+          if (token !== this.seq) return;
+          await this._sleep(200);
+        }
         const url = await this._url(k);
         if (token !== this.seq) return;
         await new Promise(resolve => {
           this.el.src = url;
+          this.el.volume = 1.0;
           this.el.playbackRate = Engine.settings.rate || 1.0;
           this.el.onended = resolve;
           this.el.onerror = resolve;

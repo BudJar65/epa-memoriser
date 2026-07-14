@@ -25,6 +25,38 @@ function firstLetterCue(text) {
   }).join(" ");
 }
 
+// ---- Global pause: freezes narration, mic and auto-advance in place ----
+const Pause = {
+  paused: false,
+  toggle() { this.paused ? this.resume() : this.pause(); },
+  pause() {
+    this.paused = true;
+    if (Voice.synth) { try { Voice.synth.pause(); } catch (e) {} }
+    AudioPlayer.pauseClip();
+    Voice.suspendListening();
+    document.getElementById("pause-overlay").classList.add("show");
+  },
+  resume() {
+    this.paused = false;
+    document.getElementById("pause-overlay").classList.remove("show");
+    if (Voice.synth) { try { Voice.synth.resume(); } catch (e) {} }
+    AudioPlayer.resumeClip();
+    Voice.resumeListening();
+  },
+  setVisible(on) {
+    document.getElementById("pause-btn").classList.toggle("show", !!on);
+    if (!on && this.paused) this.resume();
+  }
+};
+
+// Run fn now, or as soon as the app is unpaused.
+function afterUnpaused(fn) {
+  if (!Pause.paused) return fn();
+  const iv = setInterval(() => {
+    if (!Pause.paused) { clearInterval(iv); fn(); }
+  }, 250);
+}
+
 // ---- Narration helpers: map spoken content to its pre-generated clip keys ----
 function beatKeys(entry) { return entry.beats.map((_, i) => `e${entry.id}-beat${i}`); }
 function speakLearnFull() { Voice.speak(learn.entry.beats.join(" "), null, beatKeys(learn.entry)); }
@@ -55,6 +87,7 @@ function recallDots(s) {
 function renderHome() {
   WakeLock.off();
   Voice.stopSpeaking();
+  Pause.setVisible(false);
   const sum = Engine.summary();
   const due = Engine.dueNow();
   const next = Engine.nextNew();
@@ -199,6 +232,7 @@ function learnNextChunk() {
 }
 
 function renderLearn() {
+  Pause.setVisible(true);
   const { entry, chunks, stage, idx, phase } = learn;
   let body = "", controls = "", label = "";
 
@@ -347,6 +381,7 @@ function quizEntry() {
 }
 
 function renderQuiz() {
+  Pause.setVisible(true);
   const entry = quizEntry();
   const s = Engine.entry(entry.id);
   const mode = Engine.settings.quizMode;
@@ -462,7 +497,7 @@ function renderQuiz() {
     if (quiz.walk) {
       Voice.speak(
         (r.clean ? "Clean recall. " : "Not clean yet. ") + "If probed, add: " + entry.probe,
-        Engine.settings.autoAdvance ? () => setTimeout(() => { if (quiz && quiz.phase === "result") quizNext(); }, 1500) : null,
+        Engine.settings.autoAdvance ? () => setTimeout(() => afterUnpaused(() => { if (quiz && quiz.phase === "result") quizNext(); }), 1500) : null,
         [r.clean ? "g-clean" : "g-notclean", `e${entry.id}-probe`]
       );
     }
@@ -590,6 +625,7 @@ function startDrill() {
 }
 
 function renderDrill() {
+  Pause.setVisible(true);
   const entry = ANSWER_BANK.find(e => e.id === drill.queue[drill.idx]);
   let body, controls;
   if (!drill.revealed) {
@@ -778,6 +814,8 @@ function bootApp() {
 
 window.addEventListener("DOMContentLoaded", async () => {
   Voice.init();
+  document.getElementById("pause-btn").addEventListener("click", () => Pause.toggle());
+  document.getElementById("pause-resume").addEventListener("click", () => Pause.resume());
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }

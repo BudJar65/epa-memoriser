@@ -15,6 +15,12 @@
 </head>
 <body>
   <div id="app"><p style="text-align:center;padding:40px 0">Loading…</p></div>
+  <button id="pause-btn" aria-label="Pause">⏸</button>
+  <div id="pause-overlay">
+    <p class="pause-title">⏸ Paused</p>
+    <p class="pause-sub">Sort the dog out — everything's waiting for you.</p>
+    <button class="btn btn-primary btn-big" id="pause-resume">▶ Resume</button>
+  </div>
   <script src="js/crypto.js"></script>
   <script src="js/audio.js"></script>
   <script src="js/engine.js"></script>

@@ -87,8 +87,10 @@ const Voice = {
 
   _rec: null,
   _active: false,
+  _suspended: false,
   _finalText: "",
   _interim: "",
+  lastMicStop: 0, // used to wait out iOS audio "ducking" after mic use
   onUpdate: null, // callback(fullTranscriptSoFar)
 
   startListening(onUpdate) {
@@ -98,6 +100,7 @@ const Voice = {
     this._finalText = "";
     this._interim = "";
     this._active = true;
+    this._suspended = false;
     this.onUpdate = onUpdate || null;
 
     const rec = new SR();
@@ -117,9 +120,10 @@ const Voice = {
       if (this.onUpdate) this.onUpdate((this._finalText + " " + this._interim).trim());
     };
 
-    // iOS Safari loves to stop early; restart while the session is active.
+    // iOS Safari loves to stop early; restart while the session is active
+    // (but not while deliberately paused).
     rec.onend = () => {
-      if (this._active) {
+      if (this._active && !this._suspended) {
         try { rec.start(); } catch (e) { /* already restarting */ }
       }
     };
@@ -137,7 +141,24 @@ const Voice = {
   stopListening() {
     this._active = false;
     if (this._rec) { try { this._rec.stop(); } catch (e) {} }
+    this.lastMicStop = Date.now();
     return (this._finalText + " " + this._interim).trim();
+  },
+
+  // Pause/resume the mic without losing the transcript gathered so far.
+  suspendListening() {
+    if (this._active && !this._suspended) {
+      this._suspended = true;
+      if (this._rec) { try { this._rec.abort(); } catch (e) {} }
+      this.lastMicStop = Date.now();
+    }
+  },
+
+  resumeListening() {
+    if (this._active && this._suspended) {
+      this._suspended = false;
+      if (this._rec) { try { this._rec.start(); } catch (e) {} }
+    }
   }
 };
 

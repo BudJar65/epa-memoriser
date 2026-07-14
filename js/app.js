@@ -483,7 +483,8 @@ function renderQuiz() {
         quiz.evOptions = shuffle([entry.sayFirst, ...others]);
       }
       body = `
-        <div class="card question-card"><p class="q-label">Assessor: “Where do you evidence that?”</p></div>
+        <div class="card question-card"><p class="q-label">Assessor: “Where do you evidence that?”</p>
+        <p class="hint" style="text-align:left">Only ONE of these is the evidence line for <b>this</b> answer — the other two belong to different answers. Pick yours.</p></div>
         <div class="mc">${quiz.evOptions.map((o, i) =>
           `<button class="btn mc-opt mc-long" onclick="quizPickEv(${i})">${esc(o)}</button>`).join("")}</div>`;
       controls = "";

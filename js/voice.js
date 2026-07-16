@@ -146,7 +146,12 @@ const Voice = {
 
   stopListening() {
     this._active = false;
-    if (this._rec) { try { this._rec.stop(); } catch (e) {} }
+    // abort() tears the mic session down faster than stop(), which shortens
+    // the window where iOS ducks playback volume. The transcript is read
+    // synchronously below, so nothing is lost by aborting.
+    if (this._rec) {
+      try { this._rec.abort(); } catch (e) { try { this._rec.stop(); } catch (e2) {} }
+    }
     this.lastMicStop = Date.now();
     return (this._finalText + " " + this._interim).trim();
   },

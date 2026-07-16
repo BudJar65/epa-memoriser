@@ -79,16 +79,17 @@ const AudioPlayer = {
   async playSeq(keys, onDone) {
     const token = ++this.seq;
     try {
-      // iOS lowers ("ducks") media volume while the mic session winds down —
-      // wait it out so narration starts at full volume.
-      const sinceMic = Date.now() - (Voice.lastMicStop || 0);
-      if (sinceMic < 1100) await this._sleep(1100 - sinceMic);
       for (const k of keys) {
         if (token !== this.seq) return;
         while (typeof Pause !== "undefined" && Pause.paused) {
           if (token !== this.seq) return;
           await this._sleep(200);
         }
+        // iOS lowers ("ducks") media volume while the mic session winds down,
+        // sometimes engaging a second or two late — so wait out the window
+        // before EVERY clip, not just the first of a sequence.
+        const sinceMic = Date.now() - (Voice.lastMicStop || 0);
+        if (sinceMic < 1500) await this._sleep(1500 - sinceMic);
         const url = await this._url(k);
         if (token !== this.seq) return;
         await new Promise(resolve => {

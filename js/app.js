@@ -523,7 +523,7 @@ function renderQuiz() {
         <p class="q-label">Assessor asks:</p>
         <p class="q-text">${esc(q)}</p>
       </div>
-      <p class="hint">Answer out loud in 30–45 seconds. Remember: evidence location first.</p>`;
+      <p class="hint">Different wordings, same model answer. Sentence one answers this exact question, then evidence location, then the full structure.</p>`;
     if (mode === "listen" && Voice.sttSupported()) {
       controls = `
         <button class="btn" onclick="speakQuizQuestion()">🔊 Repeat question</button>

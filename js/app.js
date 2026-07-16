@@ -1,7 +1,7 @@
 // EPA Answer Memoriser — UI and flows.
 // Screens: home, learn, quiz, drill (evidence), walk, browse, detail, progress, settings.
 
-const APP_VERSION = "v17"; // shown on the home screen; bumped every release
+const APP_VERSION = "v18"; // shown on the home screen; bumped every release
 
 const $ = sel => document.querySelector(sel);
 const app = () => $("#app");
@@ -329,11 +329,13 @@ function renderLearn() {
     const chunk = chunks[idx];
 
     const cue = (entry.cues || [])[idx] || "";
+    const hook = (entry.hooks || [])[idx] || "";
     if (phase === "show") {
       body = `${chunkDots()}
         ${cue ? `<p class="chunk-cue">🪝 ${esc(cue)}</p>` : ""}
         <p class="step-label">Read it and listen — then say it back with the text hidden:</p>
-        <div class="card beat beat-new">${esc(chunk)}</div>`;
+        <div class="card beat beat-new">${esc(chunk)}</div>
+        ${hook ? `<div class="card hook chunk-hook-card">🧠 ${esc(hook)}</div>` : ""}`;
       controls = `
         <button class="btn" onclick="speakChunk()">🔊 Hear it again</button>
         <button class="btn btn-primary btn-big" onclick="learnEcho()">Hide it — I'll say it back</button>
@@ -345,8 +347,8 @@ function renderLearn() {
       body = `${chunkDots()}
         <div class="card listening">
           <p class="mic-live">🎤 Say it from memory…</p>
-          ${cue ? `<p class="chunk-cue">🪝 ${esc(cue)}</p>` : ""}
-          <p class="cue">${esc(firstLetterCue(chunk))}</p>
+          ${hook ? `<p class="chunk-hook-line">🧠 ${esc(hook)}</p>` : (cue ? `<p class="chunk-cue">🪝 ${esc(cue)}</p>` : "")}
+          <details class="peek"><summary>First letters</summary><p class="cue">${esc(firstLetterCue(chunk))}</p></details>
           <p class="transcript" id="live-transcript">${esc(learn.transcript || "…")}</p>
         </div>`;
       controls = `
@@ -413,7 +415,8 @@ function renderLearn() {
     body = `
       <p class="step-label">Say the whole answer out loud using only your signposts:</p>
       <div class="card"><b>🪝 Your signposts</b>
-        <ol class="cue-chain">${(entry.cues || []).map(c => `<li>${esc(c)}</li>`).join("")}</ol>
+        <ol class="cue-chain">${(entry.cues || []).map((c, i) =>
+          `<li>${esc(c)}${(entry.hooks || [])[i] ? `<br><small>🧠 ${esc(entry.hooks[i])}</small>` : ""}</li>`).join("")}</ol>
       </div>
       <details class="peek"><summary>First-letter hints</summary><p class="cue">${esc(firstLetterCue(full))}</p></details>
       <details class="peek"><summary>Peek at the full answer</summary><p>${esc(full)}</p></details>
@@ -959,7 +962,8 @@ function renderDetail(id) {
     <p class="ksb-line"><b>${esc(e.ksb)}</b> — ${esc(e.topic)}</p>
     <p class="prio ${e.priority === "Critical Pass" ? "prio-crit" : ""}">${esc(e.priority)} &middot; ${esc(e.route)}</p>
     <div class="card hook"><b>🪝 Memory hook</b><p>${esc(e.mnemonic)}</p></div>
-    ${e.cues && e.cues.length ? `<div class="card"><b>🪝 Signposts</b><ol class="cue-chain">${e.cues.map(c => `<li>${esc(c)}</li>`).join("")}</ol></div>` : ""}
+    ${e.cues && e.cues.length ? `<div class="card"><b>🪝 Signposts &amp; hooks</b><ol class="cue-chain">${e.cues.map((c, i) =>
+      `<li>${esc(c)}${(e.hooks || [])[i] ? `<br><small>🧠 ${esc(e.hooks[i])}</small>` : ""}</li>`).join("")}</ol></div>` : ""}
     <div class="card"><b>They might ask</b><ul>${e.questions.map(q => `<li>${esc(q)}</li>`).join("")}</ul></div>
     <div class="card"><b>Say first</b><p>“${esc(e.sayFirst)}”</p></div>
     <div class="card"><b>The 30–45s answer</b>${e.beats.map(b => `<p>${esc(b)}</p>`).join("")}</div>

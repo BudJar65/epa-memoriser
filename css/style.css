@@ -145,7 +145,10 @@ body {
   color: var(--warn); margin: 8px 0 2px; font-size: 0.95rem;
 }
 .cue-chain { margin: 8px 0 0; padding-left: 24px; }
-.cue-chain li { font-weight: 600; letter-spacing: 0.03em; margin: 5px 0; }
+.cue-chain li { font-weight: 600; letter-spacing: 0.03em; margin: 8px 0; }
+.cue-chain li small { font-weight: 400; color: var(--muted); letter-spacing: 0; }
+.chunk-hook-card { font-size: 0.92rem; }
+.chunk-hook-line { font-size: 0.95rem; margin: 6px 0; }
 .peek summary { color: var(--accent); cursor: pointer; padding: 8px 0; }
 
 .question-card { border-left: 4px solid var(--accent); }

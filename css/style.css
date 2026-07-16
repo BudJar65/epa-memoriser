@@ -140,6 +140,12 @@ body {
   font-family: ui-monospace, Menlo, Consolas, monospace;
   font-size: 0.95rem; letter-spacing: 0.06em; line-height: 1.9;
 }
+.chunk-cue {
+  text-align: center; font-weight: 700; letter-spacing: 0.04em;
+  color: var(--warn); margin: 8px 0 2px; font-size: 0.95rem;
+}
+.cue-chain { margin: 8px 0 0; padding-left: 24px; }
+.cue-chain li { font-weight: 600; letter-spacing: 0.03em; margin: 5px 0; }
 .peek summary { color: var(--accent); cursor: pointer; padding: 8px 0; }
 
 .question-card { border-left: 4px solid var(--accent); }

@@ -325,8 +325,10 @@ function renderLearn() {
     label = `chunk ${idx + 1} of ${chunks.length}`;
     const chunk = chunks[idx];
 
+    const cue = (entry.cues || [])[idx] || "";
     if (phase === "show") {
       body = `${chunkDots()}
+        ${cue ? `<p class="chunk-cue">🪝 ${esc(cue)}</p>` : ""}
         <p class="step-label">Read it and listen — then say it back with the text hidden:</p>
         <div class="card beat beat-new">${esc(chunk)}</div>`;
       controls = `
@@ -340,6 +342,7 @@ function renderLearn() {
       body = `${chunkDots()}
         <div class="card listening">
           <p class="mic-live">🎤 Say it from memory…</p>
+          ${cue ? `<p class="chunk-cue">🪝 ${esc(cue)}</p>` : ""}
           <p class="cue">${esc(firstLetterCue(chunk))}</p>
           <p class="transcript" id="live-transcript">${esc(learn.transcript || "…")}</p>
         </div>`;
@@ -370,6 +373,7 @@ function renderLearn() {
       body = `${chunkDots()}
         <div class="card">
           <p class="step-label">Chunk hidden — say it out loud, then reveal:</p>
+          ${cue ? `<p class="chunk-cue">🪝 ${esc(cue)}</p>` : ""}
           <p class="cue">${esc(firstLetterCue(chunk))}</p>
         </div>`;
       controls = `<button class="btn btn-primary btn-big" onclick="learn.phase='revealself';renderLearn()">Reveal to check</button>`;
@@ -391,8 +395,11 @@ function renderLearn() {
     label = "whole answer";
     const full = entry.beats.join(" ");
     body = `
-      <p class="step-label">Say the whole answer out loud using only these first-letter hints:</p>
-      <div class="card cue">${esc(firstLetterCue(full))}</div>
+      <p class="step-label">Say the whole answer out loud using only your signposts:</p>
+      <div class="card"><b>🪝 Your signposts</b>
+        <ol class="cue-chain">${(entry.cues || []).map(c => `<li>${esc(c)}</li>`).join("")}</ol>
+      </div>
+      <details class="peek"><summary>First-letter hints</summary><p class="cue">${esc(firstLetterCue(full))}</p></details>
       <details class="peek"><summary>Peek at the full answer</summary><p>${esc(full)}</p></details>
       <div class="card hook"><b>🪝</b> ${esc(entry.mnemonic)}</div>`;
     controls = `
@@ -407,7 +414,7 @@ function renderLearn() {
     body = `
       <div class="card listening">
         <p class="mic-live">🎤 Say the whole answer…</p>
-        <p class="cue">${esc(firstLetterCue(entry.beats.join(" ")))}</p>
+        <p class="chunk-cue">${(entry.cues || []).map(esc).join(" → ")}</p>
         <p class="transcript" id="live-transcript">${esc(learn.transcript || "…")}</p>
       </div>`;
     controls = `
@@ -922,6 +929,7 @@ function renderDetail(id) {
     <p class="ksb-line"><b>${esc(e.ksb)}</b> — ${esc(e.topic)}</p>
     <p class="prio ${e.priority === "Critical Pass" ? "prio-crit" : ""}">${esc(e.priority)} &middot; ${esc(e.route)}</p>
     <div class="card hook"><b>🪝 Memory hook</b><p>${esc(e.mnemonic)}</p></div>
+    ${e.cues && e.cues.length ? `<div class="card"><b>🪝 Signposts</b><ol class="cue-chain">${e.cues.map(c => `<li>${esc(c)}</li>`).join("")}</ol></div>` : ""}
     <div class="card"><b>They might ask</b><ul>${e.questions.map(q => `<li>${esc(q)}</li>`).join("")}</ul></div>
     <div class="card"><b>Say first</b><p>“${esc(e.sayFirst)}”</p></div>
     <div class="card"><b>The 30–45s answer</b>${e.beats.map(b => `<p>${esc(b)}</p>`).join("")}</div>

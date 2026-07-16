@@ -82,7 +82,7 @@ const AudioPlayer = {
       // iOS lowers ("ducks") media volume while the mic session winds down —
       // wait it out so narration starts at full volume.
       const sinceMic = Date.now() - (Voice.lastMicStop || 0);
-      if (sinceMic < 700) await this._sleep(700 - sinceMic);
+      if (sinceMic < 1100) await this._sleep(1100 - sinceMic);
       for (const k of keys) {
         if (token !== this.seq) return;
         while (typeof Pause !== "undefined" && Pause.paused) {

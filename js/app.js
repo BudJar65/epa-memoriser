@@ -1,7 +1,7 @@
 // EPA Answer Memoriser — UI and flows.
 // Screens: home, learn, quiz, drill (evidence), walk, browse, detail, progress, settings.
 
-const APP_VERSION = "v18"; // shown on the home screen; bumped every release
+const APP_VERSION = "v19"; // shown on the home screen; bumped every release
 
 const $ = sel => document.querySelector(sel);
 const app = () => $("#app");
@@ -57,6 +57,19 @@ function afterUnpaused(fn) {
   const iv = setInterval(() => {
     if (!Pause.paused) { clearInterval(iv); fn(); }
   }, 250);
+}
+
+// ---- Live mic status: "warming up" until capture truly engages ----
+function micStatusHtml() {
+  const live = Voice._audioStarted;
+  return `<p class="mic-live ${live ? "" : "mic-warm"}" id="mic-status">${live ? "🎤 Listening — speak!" : "⏳ Mic warming up — wait for it…"}</p>`;
+}
+
+function armMicStatus() {
+  Voice.onAudioLive = () => {
+    const el = $("#mic-status");
+    if (el) { el.textContent = "🎤 Listening — speak!"; el.classList.remove("mic-warm"); }
+  };
 }
 
 // ---- Narration helpers: map spoken content to its pre-generated clip keys ----
@@ -248,6 +261,7 @@ function learnEcho() {
   });
   learn.phase = ok ? "echo" : "hiddenself";
   renderLearn();
+  armMicStatus();
 }
 
 function learnEchoDone() {
@@ -293,6 +307,7 @@ function learnFullEcho() {
   });
   learn.stage = ok ? "fullecho" : "fullself";
   renderLearn();
+  armMicStatus();
 }
 
 function learnFullDone() {
@@ -346,7 +361,7 @@ function renderLearn() {
     else if (phase === "echo") {
       body = `${chunkDots()}
         <div class="card listening">
-          <p class="mic-live">🎤 Say it from memory…</p>
+          ${micStatusHtml()}
           ${hook ? `<p class="chunk-hook-line">🧠 ${esc(hook)}</p>` : (cue ? `<p class="chunk-cue">🪝 ${esc(cue)}</p>` : "")}
           <details class="peek"><summary>First letters</summary><p class="cue">${esc(firstLetterCue(chunk))}</p></details>
           <p class="transcript" id="live-transcript">${esc(learn.transcript || "…")}</p>
@@ -432,7 +447,7 @@ function renderLearn() {
     label = "whole answer";
     body = `
       <div class="card listening">
-        <p class="mic-live">🎤 Say the whole answer…</p>
+        ${micStatusHtml()}
         <p class="chunk-cue">${(entry.cues || []).map(esc).join(" → ")}</p>
         <p class="transcript" id="live-transcript">${esc(learn.transcript || "…")}</p>
       </div>`;
@@ -561,7 +576,7 @@ function renderQuiz() {
     body = `
       <div class="card question-card"><p class="q-text">${esc(q)}</p></div>
       <div class="card listening">
-        <p class="mic-live">🎤 Listening…</p>
+        ${micStatusHtml()}
         <p class="transcript" id="live-transcript">${esc(quiz.transcript || "…")}</p>
       </div>`;
     controls = `<button class="btn btn-primary btn-big" onclick="quizStopListen()">⏹ Finished answering</button>`;
@@ -640,7 +655,8 @@ function renderQuiz() {
   else if (quiz.phase === "evlisten") {
     body = `
       <div class="card listening">
-        <p class="mic-live">🎤 Say the evidence location…</p>
+        ${micStatusHtml()}
+        <p class="hint">Say the evidence location: document, pages, heading.</p>
         <p class="transcript" id="live-transcript">${esc(quiz.transcriptEv || "…")}</p>
       </div>`;
     controls = `<button class="btn btn-primary btn-big" onclick="quizEvDone()">⏹ I've said it</button>`;
@@ -713,6 +729,7 @@ function quizListen() {
   });
   if (!ok) { quiz.phase = "self"; }
   renderQuiz();
+  armMicStatus();
 }
 
 function quizStopListen() {
@@ -760,6 +777,7 @@ function quizEvListen() {
   if (!ok) { quiz.forceEvMc = true; quiz.phase = "evidence"; renderQuiz(); return; }
   quiz.phase = "evlisten";
   renderQuiz();
+  armMicStatus();
 }
 
 function quizEvDone() {

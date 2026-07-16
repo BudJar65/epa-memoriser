@@ -92,6 +92,7 @@ const Voice = {
   _interim: "",
   lastMicStop: 0, // used to wait out iOS audio "ducking" after mic use
   onUpdate: null, // callback(fullTranscriptSoFar)
+  onAudioLive: null, // callback fired the moment the mic truly engages
 
   startListening(onUpdate, _isRetry) {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -113,7 +114,10 @@ const Voice = {
     rec.lang = "en-GB";
     rec.continuous = true;
     rec.interimResults = true;
-    rec.onaudiostart = () => { this._audioStarted = true; };
+    rec.onaudiostart = () => {
+      this._audioStarted = true;
+      if (this.onAudioLive) this.onAudioLive(); // UI flips to "Listening"
+    };
 
     // Watchdog: iOS speech recognition sometimes wedges silently — no audio,
     // no error. If the mic hasn't engaged within 2.5s, rebuild the session;

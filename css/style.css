@@ -157,6 +157,7 @@ body {
 
 .listening { text-align: center; }
 .mic-live { color: var(--bad); font-weight: 700; animation: pulse 1.2s infinite; }
+.mic-live.mic-warm { color: var(--warn); animation: none; }
 @keyframes pulse { 50% { opacity: 0.45; } }
 .transcript { color: var(--muted); font-style: italic; min-height: 3em; }
 

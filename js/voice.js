@@ -93,21 +93,45 @@ const Voice = {
   lastMicStop: 0, // used to wait out iOS audio "ducking" after mic use
   onUpdate: null, // callback(fullTranscriptSoFar)
 
-  startListening(onUpdate) {
+  startListening(onUpdate, _isRetry) {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return false;
     this.stopSpeaking();
-    this._finalText = "";
+    if (!_isRetry) {
+      this._finalText = "";
+      this._retries = 0;
+      this.onUpdate = onUpdate || null;
+    }
     this._interim = "";
     this._active = true;
     this._suspended = false;
-    this.onUpdate = onUpdate || null;
+    this._audioStarted = false;
 
     const rec = new SR();
     this._rec = rec;
+    let recDead = false; // set when the watchdog replaces this instance
     rec.lang = "en-GB";
     rec.continuous = true;
     rec.interimResults = true;
+    rec.onaudiostart = () => { this._audioStarted = true; };
+
+    // Watchdog: iOS speech recognition sometimes wedges silently — no audio,
+    // no error. If the mic hasn't engaged within 2.5s, rebuild the session;
+    // after two failed rebuilds, give up loudly (callers show a fallback).
+    clearTimeout(this._watch);
+    this._watch = setTimeout(() => {
+      if (!this._active || this._suspended || this._audioStarted) return;
+      this._retries = (this._retries || 0) + 1;
+      recDead = true;
+      try { rec.abort(); } catch (e) {}
+      if (this._retries <= 2) {
+        this.startListening(null, true);
+      } else {
+        this._active = false;
+        this.lastMicStop = Date.now();
+        if (this.onUpdate) this.onUpdate(null); // signals "mic unavailable"
+      }
+    }, 2500);
 
     rec.onresult = (ev) => {
       let interim = "";
@@ -125,6 +149,7 @@ const Voice = {
     // ("interim") words captured before the stop — otherwise words the user
     // saw in the live transcript vanish from the final one.
     rec.onend = () => {
+      if (recDead) return; // replaced by the watchdog — don't resurrect
       if (this._interim.trim()) {
         this._finalText += " " + this._interim;
         this._interim = "";
@@ -146,6 +171,7 @@ const Voice = {
 
   stopListening() {
     this._active = false;
+    clearTimeout(this._watch);
     // Use the graceful stop(): abort() can wedge iOS speech recognition so
     // the NEXT session silently hears nothing. Ducking is handled by the
     // playback cooldowns instead.

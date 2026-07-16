@@ -1,6 +1,8 @@
 // EPA Answer Memoriser — UI and flows.
 // Screens: home, learn, quiz, drill (evidence), walk, browse, detail, progress, settings.
 
+const APP_VERSION = "v17"; // shown on the home screen; bumped every release
+
 const $ = sel => document.querySelector(sel);
 const app = () => $("#app");
 
@@ -104,7 +106,7 @@ function renderHome() {
   app().innerHTML = `
     <header class="top">
       <h1>EPA Answer Memoriser</h1>
-      <p class="sub">18 answers &middot; Level 4 BA resit</p>
+      <p class="sub">18 answers &middot; Level 4 BA resit &middot; ${APP_VERSION}</p>
     </header>
 
     <div class="card progress-card">
@@ -237,8 +239,9 @@ function chunkDots() {
 function learnEcho() {
   Voice.stopSpeaking();
   learn.transcript = "";
+  learn.micDead = false;
   const ok = Voice.startListening(t => {
-    if (t === null) { Voice.stopListening(); learn.phase = "hiddenself"; renderLearn(); return; }
+    if (t === null) { Voice.stopListening(); learn.micDead = true; learn.phase = "hiddenself"; renderLearn(); return; }
     learn.transcript = t;
     const el = $("#live-transcript");
     if (el) el.textContent = t || "…";
@@ -383,6 +386,7 @@ function renderLearn() {
     else if (phase === "hiddenself") {
       // No microphone available: hide, speak, reveal, honest self-check.
       body = `${chunkDots()}
+        ${learn.micDead ? `<div class="card result result-bad"><p>🎤 The mic stopped responding — an iPhone quirk. Carrying on without it; fully closing and reopening the app usually brings it back.</p></div>` : ""}
         <div class="card">
           <p class="step-label">Chunk hidden — say it out loud, then reveal:</p>
           ${cue ? `<p class="chunk-cue">🪝 ${esc(cue)}</p>` : ""}

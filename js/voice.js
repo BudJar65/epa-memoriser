@@ -146,12 +146,10 @@ const Voice = {
 
   stopListening() {
     this._active = false;
-    // abort() tears the mic session down faster than stop(), which shortens
-    // the window where iOS ducks playback volume. The transcript is read
-    // synchronously below, so nothing is lost by aborting.
-    if (this._rec) {
-      try { this._rec.abort(); } catch (e) { try { this._rec.stop(); } catch (e2) {} }
-    }
+    // Use the graceful stop(): abort() can wedge iOS speech recognition so
+    // the NEXT session silently hears nothing. Ducking is handled by the
+    // playback cooldowns instead.
+    if (this._rec) { try { this._rec.stop(); } catch (e) {} }
     this.lastMicStop = Date.now();
     return (this._finalText + " " + this._interim).trim();
   },
@@ -160,7 +158,7 @@ const Voice = {
   suspendListening() {
     if (this._active && !this._suspended) {
       this._suspended = true;
-      if (this._rec) { try { this._rec.abort(); } catch (e) {} }
+      if (this._rec) { try { this._rec.stop(); } catch (e) {} }
       this.lastMicStop = Date.now();
     }
   },

@@ -351,6 +351,18 @@ function renderLearn() {
         <button class="btn btn-ghost" onclick="Voice.stopListening();learn.phase='show';renderLearn()">Show it again</button>`;
     }
 
+    else if (phase === "check" && !learn.transcript.trim()) {
+      // The mic captured nothing — that's a hiccup, not a failure.
+      body = `${chunkDots()}
+        <div class="card result result-bad">
+          <p class="result-title">🎤 I didn't hear anything</p>
+          <p>Probably a mic hiccup, not you. Try saying it again.</p>
+        </div>`;
+      controls = `
+        <button class="btn btn-primary btn-big" onclick="learnEcho()">🎤 Try again</button>
+        <button class="btn btn-ghost" onclick="learn.phase='show';renderLearn()">See the chunk again</button>`;
+    }
+
     else if (phase === "check") {
       const pct = Math.round(learn.result * 100);
       const pass = learn.result >= 0.7;
@@ -523,6 +535,7 @@ function renderQuiz() {
         <p class="q-label">Assessor asks:</p>
         <p class="q-text">${esc(q)}</p>
       </div>
+      ${quiz.micFailed ? `<p class="hint" style="color:var(--bad)">🎤 The mic didn't catch anything that time — give it another go.</p>` : ""}
       <p class="hint">Different wordings, same model answer. Sentence one answers this exact question, then evidence location, then the full structure.</p>`;
     if (mode === "listen" && Voice.sttSupported()) {
       controls = `
@@ -698,6 +711,14 @@ function quizListen() {
 function quizStopListen() {
   const transcript = Voice.stopListening();
   quiz.transcript = transcript;
+  if (!transcript.trim()) {
+    // Mic hiccup: don't score an empty capture — offer the question again.
+    quiz.micFailed = true;
+    quiz.phase = "question";
+    renderQuiz();
+    return;
+  }
+  quiz.micFailed = false;
   quiz.scoreInfo = Engine.scoreTranscript(quizEntry(), transcript);
   quiz.phase = "score";
   renderQuiz();
@@ -736,6 +757,11 @@ function quizEvListen() {
 
 function quizEvDone() {
   quiz.transcriptEv = Voice.stopListening();
+  if (!quiz.transcriptEv.trim()) {
+    quiz.phase = "evidence"; // mic hiccup: ask again rather than score zero
+    renderQuiz();
+    return;
+  }
   quiz.evScore = echoScore(quizEntry().sayFirst, quiz.transcriptEv);
   quiz.phase = "evcheck";
   renderQuiz();

@@ -1,7 +1,7 @@
 // EPA Answer Memoriser — UI and flows.
 // Screens: home, learn, quiz, drill (evidence), walk, browse, detail, progress, settings.
 
-const APP_VERSION = "v19"; // shown on the home screen; bumped every release
+const APP_VERSION = "v20"; // shown on the home screen; bumped every release
 
 const $ = sel => document.querySelector(sel);
 const app = () => $("#app");
@@ -70,6 +70,20 @@ function armMicStatus() {
     const el = $("#mic-status");
     if (el) { el.textContent = "🎤 Listening — speak!"; el.classList.remove("mic-warm"); }
   };
+}
+
+// Manual mic rescue: iOS can leave the recogniser "live but deaf" — rebuilding
+// it from scratch fixes that. Each listening screen registers how to re-arm.
+let micRestart = null;
+function restartMic() {
+  Voice.stopListening();
+  const el = $("#mic-status");
+  if (el) { el.textContent = "⏳ Restarting the mic…"; el.classList.add("mic-warm"); }
+  // Brief pause lets iOS fully release the old audio session before we grab it.
+  setTimeout(() => { if (micRestart) micRestart(); }, 450);
+}
+function micRestartBtn() {
+  return `<button class="btn btn-ghost" onclick="restartMic()">🔄 Mic not hearing you? Tap to restart it</button>`;
 }
 
 // ---- Narration helpers: map spoken content to its pre-generated clip keys ----
@@ -251,6 +265,7 @@ function chunkDots() {
 
 function learnEcho() {
   Voice.stopSpeaking();
+  micRestart = learnEcho;
   learn.transcript = "";
   learn.micDead = false;
   const ok = Voice.startListening(t => {
@@ -298,6 +313,7 @@ function learnRestartChunks() {
 // Whole-answer checkpoint: recite the full answer, get it word-scored.
 function learnFullEcho() {
   Voice.stopSpeaking();
+  micRestart = learnFullEcho;
   learn.transcript = "";
   const ok = Voice.startListening(t => {
     if (t === null) { Voice.stopListening(); learn.stage = "fullself"; renderLearn(); return; }
@@ -368,6 +384,7 @@ function renderLearn() {
         </div>`;
       controls = `
         <button class="btn btn-primary btn-big" onclick="learnEchoDone()">⏹ I've said it</button>
+        ${micRestartBtn()}
         <button class="btn btn-ghost" onclick="Voice.stopListening();learn.phase='show';renderLearn()">Show it again</button>`;
     }
 
@@ -453,6 +470,7 @@ function renderLearn() {
       </div>`;
     controls = `
       <button class="btn btn-primary btn-big" onclick="learnFullDone()">⏹ I've said it</button>
+      ${micRestartBtn()}
       <button class="btn btn-ghost" onclick="Voice.stopListening();learn.stage='cue';renderLearn()">Cancel</button>`;
   }
 
@@ -579,7 +597,9 @@ function renderQuiz() {
         ${micStatusHtml()}
         <p class="transcript" id="live-transcript">${esc(quiz.transcript || "…")}</p>
       </div>`;
-    controls = `<button class="btn btn-primary btn-big" onclick="quizStopListen()">⏹ Finished answering</button>`;
+    controls = `
+      <button class="btn btn-primary btn-big" onclick="quizStopListen()">⏹ Finished answering</button>
+      ${micRestartBtn()}`;
   }
 
   else if (quiz.phase === "score") {
@@ -659,7 +679,9 @@ function renderQuiz() {
         <p class="hint">Say the evidence location: document, pages, heading.</p>
         <p class="transcript" id="live-transcript">${esc(quiz.transcriptEv || "…")}</p>
       </div>`;
-    controls = `<button class="btn btn-primary btn-big" onclick="quizEvDone()">⏹ I've said it</button>`;
+    controls = `
+      <button class="btn btn-primary btn-big" onclick="quizEvDone()">⏹ I've said it</button>
+      ${micRestartBtn()}`;
   }
 
   else if (quiz.phase === "evcheck") {
@@ -715,6 +737,7 @@ function renderQuiz() {
 }
 
 function quizListen() {
+  micRestart = quizListen;
   quiz.phase = "listening";
   quiz.transcript = "";
   const ok = Voice.startListening(t => {
@@ -767,6 +790,7 @@ function quizPickKsb(pick) {
 function quizPickEv(i) { recordEv(quiz.evOptions[i] === quizEntry().sayFirst); }
 
 function quizEvListen() {
+  micRestart = quizEvListen;
   quiz.transcriptEv = "";
   const ok = Voice.startListening(t => {
     if (t === null) { quiz.forceEvMc = true; quiz.phase = "evidence"; renderQuiz(); return; }

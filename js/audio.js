@@ -54,7 +54,16 @@ const AudioPlayer = {
   stop() {
     this.seq++;
     this._pausedClip = false;
-    if (this.el) { try { this.el.pause(); } catch (e) {} }
+    if (this.el) {
+      try {
+        this.el.pause();
+        // Detach the source so iOS fully releases the audio session — otherwise
+        // it can stay in "playback" mode and starve the microphone. The blob
+        // URL is kept in this.urls for reuse, so we don't revoke it.
+        this.el.removeAttribute("src");
+        this.el.load();
+      } catch (e) {}
+    }
   },
 
   _pausedClip: false,

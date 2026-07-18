@@ -1,7 +1,7 @@
 // EPA Answer Memoriser — UI and flows.
 // Screens: home, learn, quiz, drill (evidence), walk, browse, detail, progress, settings.
 
-const APP_VERSION = "v21"; // shown on the home screen; bumped every release
+const APP_VERSION = "v22"; // shown on the home screen; bumped every release
 
 const $ = sel => document.querySelector(sel);
 const app = () => $("#app");
@@ -326,6 +326,33 @@ function learnRestartChunks() {
   renderLearn();
 }
 
+// Openings drill: recall how each chunk STARTS (Jason's key to the rest).
+// Self-graded tap-to-reveal — no microphone involved. "Not yet" chunks come
+// back around until every opening is recalled cleanly.
+function startOpenings() {
+  Voice.stopSpeaking();
+  learn.stage = "openings";
+  learn.opQueue = learn.chunks.map((_, i) => i);
+  learn.opRetry = [];
+  learn.opRevealed = false;
+  renderLearn();
+}
+
+function openingsGrade(ok) {
+  const i = learn.opQueue.shift();
+  if (!ok) learn.opRetry.push(i);
+  if (learn.opQueue.length === 0 && learn.opRetry.length > 0) {
+    learn.opQueue = learn.opRetry;
+    learn.opRetry = [];
+  }
+  learn.opRevealed = false;
+  if (learn.opQueue.length === 0) {
+    learn.opDone = true; // one-off "nailed it" note on the first chunk screen
+    learn.stage = "chunk"; learn.idx = 0; learn.phase = "show";
+  }
+  renderLearn();
+}
+
 // Whole-answer checkpoint: recite the full answer, get it word-scored.
 function learnFullEcho() {
   Voice.stopSpeaking();
@@ -364,11 +391,45 @@ function renderLearn() {
           <b>They might ask:</b>
           <ul>${entry.questions.slice(0, 3).map(q => `<li>${esc(q)}</li>`).join("")}</ul>
         </div>
-        <div class="card hook"><b>🪝 Memory hook</b><p>${esc(entry.mnemonic)}</p></div>
+        <div class="card"><b>🔑 How each chunk starts</b>
+          <ol class="cue-chain">${chunks.map(c => `<li>“${esc(openingWords(c))}”</li>`).join("")}</ol>
+        </div>
         <div class="card"><b>📄 Say first (evidence)</b><p>“${esc(entry.sayFirst)}”</p></div>
       </div>`;
-    controls = `<button class="btn btn-primary btn-big" onclick="learn.stage='chunk';renderLearn()">Start learning the answer</button>`;
-    Voice.speak(`${entry.ksb}. ${entry.topic}. Memory hook: ${entry.mnemonic}`, null, [`e${entry.id}-intro`]);
+    controls = `
+      <button class="btn btn-primary btn-big" onclick="startOpenings()">Practise the openings</button>
+      <button class="btn btn-ghost" onclick="learn.stage='chunk';renderLearn()">Straight to the chunks</button>`;
+    Voice.speak(`${entry.ksb}. ${entry.topic}. How each chunk starts. ` +
+      chunks.map((c, i) => `${i + 1}. ${openingWords(c).replace(" …", "")}.`).join(" "),
+      null, [`e${entry.id}-intro`]);
+  }
+
+  else if (stage === "openings") {
+    const i = learn.opQueue[0];
+    const chunk = chunks[i];
+    const cue = (entry.cues || [])[i] || "";
+    const opening = openingWords(chunk);
+    label = "openings drill";
+    if (!learn.opRevealed) {
+      body = `
+        <p class="step-label">Chunk ${i + 1} of ${chunks.length} — how does it start?</p>
+        <div class="card">
+          ${cue ? `<p class="chunk-cue">🪝 ${esc(cue)}</p>` : ""}
+          <p class="cue">${esc(firstLetterCue(opening.replace(" …", "")))}</p>
+        </div>`;
+      controls = `
+        <button class="btn btn-primary btn-big" onclick="learn.opRevealed=true;renderLearn()">Reveal the opening</button>
+        <button class="btn btn-ghost" onclick="learn.stage='chunk';renderLearn()">Skip to the chunks</button>`;
+    } else {
+      body = `
+        <p class="step-label">Chunk ${i + 1} of ${chunks.length} starts:</p>
+        <div class="card beat beat-new">“${esc(opening)}”</div>`;
+      controls = `
+        <div class="grade-row">
+          <button class="btn grade-bad" onclick="openingsGrade(false)">Not yet</button>
+          <button class="btn grade-good" onclick="openingsGrade(true)">Got it</button>
+        </div>`;
+    }
   }
 
   else if (stage === "chunk") {
@@ -377,7 +438,9 @@ function renderLearn() {
 
     const cue = (entry.cues || [])[idx] || "";
     if (phase === "show") {
+      const opDone = learn.opDone; learn.opDone = false;
       body = `${chunkDots()}
+        ${opDone ? `<div class="card result result-good"><p>✅ Openings nailed — now the full chunks.</p></div>` : ""}
         ${cue ? `<p class="chunk-cue">🪝 ${esc(cue)}</p>` : ""}
         <p class="step-label">Read it and listen — the <b>bold opening</b> is your way in. Then say it back with the text hidden:</p>
         <div class="card beat beat-new">${chunkHtml(chunk)}</div>`;
@@ -1011,6 +1074,7 @@ function renderBrowse() {
 function renderDetail(id) {
   const e = ANSWER_BANK.find(x => x.id === id);
   const s = Engine.entry(id);
+  const chs = chunkify(e);
   app().innerHTML = `
     <header class="top slim">
       <button class="btn-back" onclick="renderBrowse()">‹ Back</button>
@@ -1018,9 +1082,8 @@ function renderDetail(id) {
     </header>
     <p class="ksb-line"><b>${esc(e.ksb)}</b> — ${esc(e.topic)}</p>
     <p class="prio ${e.priority === "Critical Pass" ? "prio-crit" : ""}">${esc(e.priority)} &middot; ${esc(e.route)}</p>
-    <div class="card hook"><b>🪝 Memory hook</b><p>${esc(e.mnemonic)}</p></div>
-    ${e.cues && e.cues.length ? `<div class="card"><b>🪝 Signposts &amp; hooks</b><ol class="cue-chain">${e.cues.map((c, i) =>
-      `<li>${esc(c)}${(e.hooks || [])[i] ? `<br><small>🧠 ${esc(e.hooks[i])}</small>` : ""}</li>`).join("")}</ol></div>` : ""}
+    ${e.cues && e.cues.length ? `<div class="card"><b>🪝 Signposts &amp; openings</b><ol class="cue-chain">${e.cues.map((c, i) =>
+      `<li>${esc(c)}${chs[i] ? `<br><small>▶ “${esc(openingWords(chs[i]))}”</small>` : ""}</li>`).join("")}</ol></div>` : ""}
     <div class="card"><b>They might ask</b><ul>${e.questions.map(q => `<li>${esc(q)}</li>`).join("")}</ul></div>
     <div class="card"><b>Say first</b><p>“${esc(e.sayFirst)}”</p></div>
     <div class="card"><b>The 30–45s answer</b>${e.beats.map(b => `<p>${esc(b)}</p>`).join("")}</div>

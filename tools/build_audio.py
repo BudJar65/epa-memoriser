@@ -42,6 +42,11 @@ def sentence_chunks(beats):
     return out
 
 
+def opening(text, n=4):
+    """First few words of a chunk — MUST mirror openingWords() in js/app.js."""
+    return " ".join(text.split()[:n])
+
+
 def build_clip_list(bank):
     """Map clip-key -> text to speak."""
     clips = {
@@ -60,7 +65,9 @@ def build_clip_list(bank):
             clips[f"g-drill-{r}-{n}"] = f"{r} out of {n} evidence locations nailed."
     for e in bank:
         i = e["id"]
-        clips[f"e{i}-intro"] = f"{e['ksb']}. {e['topic']}. Memory hook: {e['mnemonic']}"
+        clips[f"e{i}-intro"] = (f"{e['ksb']}. {e['topic']}. How each chunk starts. "
+                                + " ".join(f"{n + 1}. {opening(s)}." for n, s
+                                           in enumerate(sentence_chunks(e["beats"]))))
         for b, beat in enumerate(e["beats"]):
             clips[f"e{i}-beat{b}"] = beat
         for k, s in enumerate(sentence_chunks(e["beats"])):

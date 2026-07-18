@@ -184,6 +184,23 @@ const Voice = {
     return (this._finalText + " " + this._interim).trim();
   },
 
+  // Full teardown for the manual mic-rescue button. A graceful stop() is right
+  // for normal ends, but a wedged "live but deaf" session can survive it —
+  // leaving the screen and coming back revives the mic, so this mimics that:
+  // drop the instance, disconnect its handlers (a zombie onend can't restart
+  // it), and abort() only if capture never engaged (the watchdog already
+  // proves abort is safe on a session that never went live).
+  hardStop() {
+    const wasLive = this._audioStarted;
+    const rec = this._rec;
+    this.stopListening();
+    this._rec = null;
+    if (rec) {
+      rec.onend = rec.onresult = rec.onerror = rec.onaudiostart = null;
+      if (!wasLive) { try { rec.abort(); } catch (e) {} }
+    }
+  },
+
   // Pause/resume the mic without losing the transcript gathered so far.
   suspendListening() {
     if (this._active && !this._suspended) {

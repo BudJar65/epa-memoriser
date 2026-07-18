@@ -1,7 +1,7 @@
 // EPA Answer Memoriser — UI and flows.
 // Screens: home, learn, quiz, drill (evidence), walk, browse, detail, progress, settings.
 
-const APP_VERSION = "v20"; // shown on the home screen; bumped every release
+const APP_VERSION = "v21"; // shown on the home screen; bumped every release
 
 const $ = sel => document.querySelector(sel);
 const app = () => $("#app");
@@ -17,6 +17,20 @@ function shuffle(arr) {
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
+}
+
+// Jason recalls a chunk from how it STARTS: given the opening, the rest
+// follows. So cue with the first few words, not invented mnemonics.
+function openingWords(text, n = 4) {
+  const words = text.trim().split(/\s+/);
+  return words.slice(0, n).join(" ") + (words.length > n ? " …" : "");
+}
+
+// Render a chunk with its opening words in bold, to anchor the eye on them.
+function chunkHtml(chunk) {
+  const words = chunk.trim().split(/\s+/);
+  const n = Math.min(4, words.length);
+  return `<b>${esc(words.slice(0, n).join(" "))}</b> ${esc(words.slice(n).join(" "))}`;
 }
 
 // Turn a sentence into a first-letter cue: "I planned the BA work" -> "I p t B w"
@@ -76,11 +90,13 @@ function armMicStatus() {
 // it from scratch fixes that. Each listening screen registers how to re-arm.
 let micRestart = null;
 function restartMic() {
-  Voice.stopListening();
+  Voice.hardStop();
+  Voice.stopSpeaking();
   const el = $("#mic-status");
-  if (el) { el.textContent = "⏳ Restarting the mic…"; el.classList.add("mic-warm"); }
-  // Brief pause lets iOS fully release the old audio session before we grab it.
-  setTimeout(() => { if (micRestart) micRestart(); }, 450);
+  if (el) { el.textContent = "⏳ Restarting the mic — give it a couple of seconds…"; el.classList.add("mic-warm"); }
+  // Leaving the screen and returning revives a wedged mic; mimic that with a
+  // full teardown plus a longer pause so iOS truly lets go of the session.
+  setTimeout(() => { if (micRestart) micRestart(); }, 1600);
 }
 function micRestartBtn() {
   return `<button class="btn btn-ghost" onclick="restartMic()">🔄 Mic not hearing you? Tap to restart it</button>`;
@@ -360,13 +376,11 @@ function renderLearn() {
     const chunk = chunks[idx];
 
     const cue = (entry.cues || [])[idx] || "";
-    const hook = (entry.hooks || [])[idx] || "";
     if (phase === "show") {
       body = `${chunkDots()}
         ${cue ? `<p class="chunk-cue">🪝 ${esc(cue)}</p>` : ""}
-        <p class="step-label">Read it and listen — then say it back with the text hidden:</p>
-        <div class="card beat beat-new">${esc(chunk)}</div>
-        ${hook ? `<div class="card hook chunk-hook-card">🧠 ${esc(hook)}</div>` : ""}`;
+        <p class="step-label">Read it and listen — the <b>bold opening</b> is your way in. Then say it back with the text hidden:</p>
+        <div class="card beat beat-new">${chunkHtml(chunk)}</div>`;
       controls = `
         <button class="btn" onclick="speakChunk()">🔊 Hear it again</button>
         <button class="btn btn-primary btn-big" onclick="learnEcho()">Hide it — I'll say it back</button>
@@ -378,8 +392,9 @@ function renderLearn() {
       body = `${chunkDots()}
         <div class="card listening">
           ${micStatusHtml()}
-          ${hook ? `<p class="chunk-hook-line">🧠 ${esc(hook)}</p>` : (cue ? `<p class="chunk-cue">🪝 ${esc(cue)}</p>` : "")}
-          <details class="peek"><summary>First letters</summary><p class="cue">${esc(firstLetterCue(chunk))}</p></details>
+          ${cue ? `<p class="chunk-cue">🪝 ${esc(cue)}</p>` : ""}
+          <p class="cue">${esc(firstLetterCue(chunk))}</p>
+          <details class="peek"><summary>How it starts</summary><p>“${esc(openingWords(chunk))}”</p></details>
           <p class="transcript" id="live-transcript">${esc(learn.transcript || "…")}</p>
         </div>`;
       controls = `
@@ -420,18 +435,19 @@ function renderLearn() {
     else if (phase === "hiddenself") {
       // No microphone available: hide, speak, reveal, honest self-check.
       body = `${chunkDots()}
-        ${learn.micDead ? `<div class="card result result-bad"><p>🎤 The mic stopped responding — an iPhone quirk. Carrying on without it; fully closing and reopening the app usually brings it back.</p></div>` : ""}
+        ${learn.micDead ? `<div class="card result result-bad"><p>🎤 The mic stopped responding — an iPhone quirk. Carrying on without it; going back to Home for a few seconds and returning usually wakes it up.</p></div>` : ""}
         <div class="card">
           <p class="step-label">Chunk hidden — say it out loud, then reveal:</p>
           ${cue ? `<p class="chunk-cue">🪝 ${esc(cue)}</p>` : ""}
           <p class="cue">${esc(firstLetterCue(chunk))}</p>
+          <details class="peek"><summary>How it starts</summary><p>“${esc(openingWords(chunk))}”</p></details>
         </div>`;
       controls = `<button class="btn btn-primary btn-big" onclick="learn.phase='revealself';renderLearn()">Reveal to check</button>`;
     }
 
     else { // revealself
       body = `${chunkDots()}
-        <div class="card beat beat-new">${esc(chunk)}</div>`;
+        <div class="card beat beat-new">${chunkHtml(chunk)}</div>`;
       controls = `
         <div class="grade-row">
           <button class="btn grade-bad" onclick="learn.phase='show';renderLearn()">Show me again</button>
@@ -446,13 +462,12 @@ function renderLearn() {
     const full = entry.beats.join(" ");
     body = `
       <p class="step-label">Say the whole answer out loud using only your signposts:</p>
-      <div class="card"><b>🪝 Your signposts</b>
+      <div class="card"><b>🪝 Your signposts — and how each chunk starts</b>
         <ol class="cue-chain">${(entry.cues || []).map((c, i) =>
-          `<li>${esc(c)}${(entry.hooks || [])[i] ? `<br><small>🧠 ${esc(entry.hooks[i])}</small>` : ""}</li>`).join("")}</ol>
+          `<li>${esc(c)}${chunks[i] ? `<br><small>▶ “${esc(openingWords(chunks[i]))}”</small>` : ""}</li>`).join("")}</ol>
       </div>
       <details class="peek"><summary>First-letter hints</summary><p class="cue">${esc(firstLetterCue(full))}</p></details>
-      <details class="peek"><summary>Peek at the full answer</summary><p>${esc(full)}</p></details>
-      <div class="card hook"><b>🪝</b> ${esc(entry.mnemonic)}</div>`;
+      <details class="peek"><summary>Peek at the full answer</summary><p>${esc(full)}</p></details>`;
     controls = `
       <button class="btn btn-primary btn-big" onclick="learnFullEcho()">🎤 Say the whole answer — check me</button>
       <button class="btn" onclick="speakLearnFull()">🔊 Hear it once more</button>

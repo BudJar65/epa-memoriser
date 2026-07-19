@@ -1,5 +1,5 @@
 // Service worker: caches the app so it works offline (e.g. patchy signal on a walk).
-const CACHE = "epa-memoriser-v23";
+const CACHE = "epa-memoriser-v24";
 const ASSETS = [
   ".",
   "index.html",
@@ -8,6 +8,7 @@ const ASSETS = [
   "js/crypto.js",
   "js/audio.js",
   "js/engine.js",
+  "js/sync.js",
   "js/voice.js",
   "js/app.js",
   "manifest.webmanifest",
@@ -32,6 +33,8 @@ self.addEventListener("activate", e => {
 // Everything else is network-first (updates when online, cache when offline).
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET") return;
+  // Leave other sites (e.g. the GitHub sync API) alone — never cache those.
+  if (new URL(e.request.url).origin !== location.origin) return;
   const isAudio = e.request.url.includes("/audio/");
   if (isAudio) {
     e.respondWith(

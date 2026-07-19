@@ -67,6 +67,7 @@ const Engine = {
 
   save() {
     localStorage.setItem(STORE_KEY, JSON.stringify(this.state));
+    if (typeof Sync !== "undefined") Sync.pushSoon();
   },
 
   saveSettings() {
@@ -79,6 +80,40 @@ const Engine = {
     this.history.unshift({ t: Date.now(), kind, ...detail });
     if (this.history.length > HISTORY_MAX) this.history.length = HISTORY_MAX;
     localStorage.setItem(HISTORY_KEY, JSON.stringify(this.history));
+    if (typeof Sync !== "undefined") Sync.pushSoon();
+  },
+
+  // Fold another device's save into this one. Per answer, whichever record
+  // was used more recently wins; the two diaries are merged and de-duplicated.
+  // Returns true if anything on THIS device changed.
+  mergeRemote(remote) {
+    let changed = false;
+    if (remote && remote.state) {
+      for (const id of Object.keys(remote.state)) {
+        const r = remote.state[id];
+        const l = this.state[id];
+        if (r && (!l || (r.lastSeen || 0) > (l.lastSeen || 0))) {
+          this.state[id] = r;
+          changed = true;
+        }
+      }
+      if (changed) localStorage.setItem(STORE_KEY, JSON.stringify(this.state));
+    }
+    if (remote && Array.isArray(remote.history)) {
+      const seen = new Set(this.history.map(ev => ev.t + "|" + ev.kind));
+      let added = 0;
+      for (const ev of remote.history) {
+        const k = ev.t + "|" + ev.kind;
+        if (ev && ev.t && !seen.has(k)) { this.history.push(ev); seen.add(k); added++; }
+      }
+      if (added) {
+        this.history.sort((a, b) => b.t - a.t);
+        if (this.history.length > HISTORY_MAX) this.history.length = HISTORY_MAX;
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(this.history));
+        changed = true;
+      }
+    }
+    return changed;
   },
 
   entry(id) { return this.state[id]; },

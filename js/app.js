@@ -1,7 +1,7 @@
 // EPA Answer Memoriser — UI and flows.
 // Screens: home, learn, quiz, drill (evidence), walk, browse, detail, progress, settings.
 
-const APP_VERSION = "v23"; // shown on the home screen; bumped every release
+const APP_VERSION = "v24"; // shown on the home screen; bumped every release
 
 const $ = sel => document.querySelector(sel);
 const app = () => $("#app");
@@ -1179,6 +1179,39 @@ function renderProgress() {
 }
 
 // ---------------------------------------------------------------- SETTINGS
+function syncStatusLine() {
+  if (Sync.status === "error") return "⚠️ Last sync failed: " + Sync.lastError;
+  if (Sync.status === "syncing") return "Syncing…";
+  if (Sync.lastSynced) {
+    return "Last synced " + new Date(Sync.lastSynced)
+      .toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  return "Connected — waiting for first sync.";
+}
+
+async function syncEnableClicked() {
+  const input = $("#sync-token");
+  const err = $("#sync-error");
+  const token = (input && input.value || "").trim();
+  if (!token) { err.textContent = "Paste the token in first."; return; }
+  err.style.color = "var(--muted)";
+  err.textContent = "Connecting to GitHub…";
+  try {
+    await Sync.enable(token);
+    renderSettings();
+  } catch (e) {
+    err.style.color = "var(--bad)";
+    err.textContent = e.message;
+  }
+}
+
+async function syncNowClicked() {
+  const el = $("#sync-status");
+  if (el) el.textContent = "Syncing…";
+  await Sync.syncNow();
+  renderSettings();
+}
+
 function renderSettings() {
   const st = Engine.settings;
   app().innerHTML = `
@@ -1212,6 +1245,26 @@ function renderSettings() {
       <p><b>Mic on iPhone:</b> listen mode needs Settings → Siri &amp; Search → “Siri &amp; Dictation” enabled, and Safari mic permission. If it misbehaves outdoors, switch to self-grade.</p>
       <p><b>Nicer voice on iPhone:</b> download a Premium voice once in Settings → Accessibility → Spoken Content → Voices → English (UK) — e.g. “Serena (Premium)” — then pick it in the Voice list above.</p>
     </div>
+    <div class="card">
+      <p><b>☁️ Sync between phone and PC</b></p>
+      ${Sync.enabled() ? `
+        <p style="font-size:0.9rem">ON — progress and diary are shared through a private,
+          encrypted note on your GitHub account.</p>
+        <p id="sync-status" style="font-size:0.85rem;color:var(--muted)">${esc(syncStatusLine())}</p>
+        <button class="btn" onclick="syncNowClicked()">Sync now</button>
+        <button class="btn btn-ghost" onclick="if(confirm('Turn off sync on this device? Nothing is deleted — other devices keep syncing.')){Sync.disable();renderSettings()}">Turn off on this device</button>
+      ` : `
+        <p style="font-size:0.9rem">Share your progress and study diary between devices.
+          Paste a GitHub token here (classic token with only the <b>gist</b> permission) —
+          same token on every device.</p>
+        <input id="sync-token" type="password" placeholder="GitHub token (ghp_…)"
+          autocapitalize="off" autocorrect="off" spellcheck="false"
+          style="width:100%;font-size:1rem;padding:10px;border-radius:10px;
+                 border:1px solid var(--line);background:var(--bg);color:var(--text)">
+        <p id="sync-error" style="color:var(--bad);font-size:0.85rem;min-height:1.1em"></p>
+        <button class="btn btn-primary" onclick="syncEnableClicked()">Turn on sync</button>
+      `}
+    </div>
     <button class="btn btn-ghost" onclick="if(confirm('Forget the passphrase on this device? You will need to type it again next time.')){DataLock.forget()}">🔒 Forget passphrase on this device</button>
     <button class="btn btn-ghost danger" onclick="if(confirm('Reset ALL progress? This cannot be undone.')){Engine.resetAll();renderHome()}">Reset all progress</button>
   `;
@@ -1220,7 +1273,15 @@ function renderSettings() {
 // ---------------------------------------------------------------- BOOT
 function bootApp() {
   Engine.load();
+  Sync.load();
   renderHome();
+  if (Sync.enabled()) {
+    // Pull the other device's progress; refresh the screen only if we're
+    // still sitting on Home when it lands (never yank a live session away).
+    Sync.syncNow(() => {
+      if (document.querySelector('#app button[onclick="renderProgress()"]')) renderHome();
+    });
+  }
 }
 
 window.addEventListener("DOMContentLoaded", async () => {

@@ -10,6 +10,8 @@
 
 const STORE_KEY = "epa-memoriser-v1";
 const SETTINGS_KEY = "epa-memoriser-settings-v1";
+const HISTORY_KEY = "epa-memoriser-history-v1";
+const HISTORY_MAX = 400; // oldest entries drop off beyond this
 
 // Gap (in hours) before an item in each box is due for review again.
 const BOX_INTERVALS_HOURS = [0, 4, 24, 72, 168]; // now, 4h, 1d, 3d, 7d
@@ -43,12 +45,15 @@ function defaultEntryState() {
 const Engine = {
   state: {},
   settings: { ...DEFAULT_SETTINGS },
+  history: [],
 
   load() {
     try { this.state = JSON.parse(localStorage.getItem(STORE_KEY)) || {}; }
     catch (e) { this.state = {}; }
     try { this.settings = { ...DEFAULT_SETTINGS, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}) }; }
     catch (e) { this.settings = { ...DEFAULT_SETTINGS }; }
+    try { this.history = JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; }
+    catch (e) { this.history = []; }
     // One-time switch to voice-scored quizzing (Jason's request, 2026-07-14).
     if (!this.settings.echoMigrated) {
       this.settings.echoMigrated = true;
@@ -66,6 +71,14 @@ const Engine = {
 
   saveSettings() {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings));
+  },
+
+  // Study diary: one entry per finished activity, newest first.
+  // kind: "learn" | "quiz" | "drill"; detail varies by kind.
+  logEvent(kind, detail) {
+    this.history.unshift({ t: Date.now(), kind, ...detail });
+    if (this.history.length > HISTORY_MAX) this.history.length = HISTORY_MAX;
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(this.history));
   },
 
   entry(id) { return this.state[id]; },

@@ -1,7 +1,7 @@
 // EPA Answer Memoriser — UI and flows.
 // Screens: home, learn, quiz, drill (evidence), walk, browse, detail, progress, settings.
 
-const APP_VERSION = "v22"; // shown on the home screen; bumped every release
+const APP_VERSION = "v23"; // shown on the home screen; bumped every release
 
 const $ = sel => document.querySelector(sel);
 const app = () => $("#app");
@@ -597,6 +597,7 @@ function renderLearn() {
 
 function finishLearn() {
   Engine.markLearned(learn.entry.id);
+  Engine.logEvent("learn", { id: learn.entry.id });
   startQuiz([learn.entry.id]); // test straight away
 }
 
@@ -945,6 +946,7 @@ function endQuiz(finished) {
     const clean = quiz.results.filter(r => r.clean).length;
     const wasWalk = quiz.walk;
     const n = quiz.results.length;
+    Engine.logEvent("quiz", { clean, n, walk: wasWalk });
     quiz = null;
     app().innerHTML = `
       <header class="top"><h1>Session done</h1></header>
@@ -1034,6 +1036,7 @@ function drillGrade(ok) {
     renderDrill();
   } else {
     const msg = `${drill.right} out of ${drill.queue.length} evidence locations nailed.`;
+    Engine.logEvent("drill", { right: drill.right, n: drill.queue.length });
     Voice.speak(msg, null, [`g-drill-${drill.right}-${drill.queue.length}`]);
     app().innerHTML = `
       <header class="top"><h1>Drill done</h1></header>
@@ -1105,14 +1108,61 @@ function renderDetail(id) {
 }
 
 // ---------------------------------------------------------------- PROGRESS
+// One line of the study diary, e.g. "14:32  🎤 Quiz session — 3/5 clean".
+function historyLine(ev) {
+  const time = new Date(ev.t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  let what;
+  if (ev.kind === "learn") {
+    const e = ANSWER_BANK.find(a => a.id === ev.id);
+    what = e ? `📖 Learned #${e.id} ${esc(e.ksb)} — ${esc(e.topic)}` : `📖 Learned #${ev.id}`;
+  } else if (ev.kind === "quiz") {
+    what = `${ev.walk ? "🚶 Walk" : "🎤 Quiz"} session — ${ev.clean}/${ev.n} clean`;
+  } else if (ev.kind === "drill") {
+    what = `📄 Evidence drill — ${ev.right}/${ev.n} nailed`;
+  } else {
+    what = esc(ev.kind);
+  }
+  return `<p class="hist-line"><span class="hist-time">${time}</span>${what}</p>`;
+}
+
+// Diary entries grouped under day headings (Today / Yesterday / Sat 19 Jul).
+function historyHtml(events) {
+  const days = [];
+  const today = new Date().toDateString();
+  const yesterday = new Date(Date.now() - 864e5).toDateString();
+  for (const ev of events) {
+    const d = new Date(ev.t);
+    const key = d.toDateString();
+    if (!days.length || days[days.length - 1].key !== key) {
+      const label = key === today ? "Today" : key === yesterday ? "Yesterday"
+        : d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
+      days.push({ key, label, lines: [] });
+    }
+    days[days.length - 1].lines.push(historyLine(ev));
+  }
+  return days.map(d => `<p class="hist-day">${d.label}</p>${d.lines.join("")}`).join("");
+}
+
 function renderProgress() {
   const sum = Engine.summary();
+  const hist = Engine.history;
+  const RECENT = 8;
   app().innerHTML = `
     <header class="top slim">
       <button class="btn-back" onclick="renderHome()">‹ Home</button>
       <span>Progress — ${sum.pct}% overall</span>
     </header>
     <div class="progress-bar"><div class="progress-fill" style="width:${sum.pct}%"></div></div>
+    <div class="card">
+      <p class="q-label">📜 What you've done</p>
+      ${hist.length ? historyHtml(hist.slice(0, RECENT)) : `
+        <p class="hist-line">Nothing logged yet — your study diary starts at v23.
+        Finish a learn, quiz or evidence drill and it will show up here.</p>`}
+      ${hist.length > RECENT ? `
+        <details class="peek"><summary>Earlier (${hist.length - RECENT} more)</summary>
+          ${historyHtml(hist.slice(RECENT))}
+        </details>` : ""}
+    </div>
     ${Engine.learningOrder().map(e => {
       const s = Engine.entry(e.id);
       const evTotal = s.evRight + s.evWrong;

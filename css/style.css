@@ -197,6 +197,10 @@ body {
 .row-side { flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .group-label { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; margin: 18px 0 4px; }
 
+.hist-day { color: var(--muted); font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin: 10px 0 2px; }
+.hist-line { font-size: 0.88rem; margin: 4px 0; }
+.hist-time { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 8px; }
+
 .tip { font-size: 0.88rem; }
 .tip ol { margin: 6px 0 0; padding-left: 20px; }
 

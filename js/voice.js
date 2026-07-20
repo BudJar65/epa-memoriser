@@ -93,6 +93,7 @@ const Voice = {
   lastMicStop: 0, // used to wait out iOS audio "ducking" after mic use
   onUpdate: null, // callback(fullTranscriptSoFar)
   onAudioLive: null, // callback fired the moment the mic truly engages
+  onMicTrouble: null, // callback: capture is live but no words are coming back
 
   startListening(onUpdate, _isRetry) {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -101,6 +102,8 @@ const Voice = {
     if (!_isRetry) {
       this._finalText = "";
       this._retries = 0;
+      this._deafRetries = 0;
+      this._heardAnything = false;
       this.onUpdate = onUpdate || null;
     }
     this._interim = "";
@@ -117,6 +120,7 @@ const Voice = {
     rec.onaudiostart = () => {
       this._audioStarted = true;
       if (this.onAudioLive) this.onAudioLive(); // UI flips to "Listening"
+      this._armDeafWatch();
     };
 
     // Watchdog: iOS speech recognition sometimes wedges silently — no audio,
@@ -138,6 +142,9 @@ const Voice = {
     }, 2500);
 
     rec.onresult = (ev) => {
+      // Proof the recogniser is alive: stand the deaf-watchdog down for good.
+      this._heardAnything = true;
+      clearTimeout(this._deafWatch);
       let interim = "";
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const r = ev.results[i];
@@ -173,9 +180,42 @@ const Voice = {
     return true;
   },
 
+  // Second watchdog — the one the orange-dot case needs. iOS can hand us a
+  // genuinely live microphone (onaudiostart fires, the phone shows the mic in
+  // use) sitting in front of a recogniser that is dead and will never return a
+  // word. The first watchdog only asks "did audio engage?", so it stands down
+  // happily here and the screen says "Listening" forever. This one asks the
+  // question that actually matters: are any words coming back?
+  //
+  // It can only fire when NOT ONE result has arrived all session — the first
+  // onresult disarms it permanently — so a long thinking pause is the only
+  // false positive, and the cost of that is landing on the self-check screen,
+  // which is where a wedged mic should send you anyway.
+  _armDeafWatch() {
+    clearTimeout(this._deafWatch);
+    if (this._heardAnything) return;
+    const first = !this._deafRetries;
+    this._deafWatch = setTimeout(() => {
+      if (!this._active || this._suspended || this._heardAnything) return;
+      this._deafRetries = (this._deafRetries || 0) + 1;
+      if (first) {
+        // One full rebuild: a graceful restart won't revive a wedged
+        // recogniser, but dropping the instance entirely sometimes does.
+        if (this.onMicTrouble) this.onMicTrouble();
+        this.hardStop();
+        setTimeout(() => { if (!this._heardAnything) this.startListening(null, true); }, 700);
+      } else {
+        this._active = false;
+        this.lastMicStop = Date.now();
+        if (this.onUpdate) this.onUpdate(null); // signals "mic unavailable"
+      }
+    }, first ? 12000 : 10000);
+  },
+
   stopListening() {
     this._active = false;
     clearTimeout(this._watch);
+    clearTimeout(this._deafWatch);
     // Use the graceful stop(): abort() can wedge iOS speech recognition so
     // the NEXT session silently hears nothing. Ducking is handled by the
     // playback cooldowns instead.

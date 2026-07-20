@@ -1,7 +1,7 @@
 // EPA Answer Memoriser — UI and flows.
 // Screens: home, learn, quiz, drill (evidence), walk, browse, detail, progress, settings.
 
-const APP_VERSION = "v25"; // shown on the home screen; bumped every release
+const APP_VERSION = "v26"; // shown on the home screen; bumped every release
 
 const $ = sel => document.querySelector(sel);
 const app = () => $("#app");
@@ -82,7 +82,21 @@ function micStatusHtml() {
 function armMicStatus() {
   Voice.onAudioLive = () => {
     const el = $("#mic-status");
-    if (el) { el.textContent = "🎤 Listening — speak!"; el.classList.remove("mic-warm"); }
+    if (!el) return;
+    if (Voice._deafRetries) {
+      // Came back from a wedge — don't claim all is well until a word lands.
+      el.textContent = "⚠️ Mic restarted — say a word so I can check it's hearing you";
+      el.classList.add("mic-warm");
+    } else {
+      el.textContent = "🎤 Listening — speak!";
+      el.classList.remove("mic-warm");
+    }
+  };
+  // Mic is capturing but no words are coming back — say so rather than sitting
+  // on a cheerful "Listening" while nothing happens.
+  Voice.onMicTrouble = () => {
+    const el = $("#mic-status");
+    if (el) { el.textContent = "⚠️ Not picking up your words — rebuilding the mic…"; el.classList.add("mic-warm"); }
   };
 }
 

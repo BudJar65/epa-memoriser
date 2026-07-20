@@ -1,7 +1,7 @@
 // EPA Answer Memoriser — UI and flows.
 // Screens: home, learn, quiz, drill (evidence), walk, browse, detail, progress, settings.
 
-const APP_VERSION = "v24"; // shown on the home screen; bumped every release
+const APP_VERSION = "v25"; // shown on the home screen; bumped every release
 
 const $ = sel => document.querySelector(sel);
 const app = () => $("#app");
@@ -279,11 +279,28 @@ function chunkDots() {
     `<span class="dot ${i < learn.idx ? "dot-on" : i === learn.idx ? "dot-now" : ""}"></span>`).join("")}</p>`;
 }
 
+// The mic can sit there looking alive and still capture nothing (iOS). Any
+// listening screen can bail out to the self-check path; doing so parks the mic
+// for the rest of this session so the same fight isn't repeated every chunk.
+function learnSelfCheck() {
+  Voice.stopListening();
+  learn.micOff = true;
+  learn.micDead = false;
+  learn.phase = "hiddenself";
+  renderLearn();
+}
+
+function learnMicBackOn() {
+  learn.micOff = false;
+  learnEcho();
+}
+
 function learnEcho() {
   Voice.stopSpeaking();
   micRestart = learnEcho;
   learn.transcript = "";
   learn.micDead = false;
+  if (learn.micOff) { learn.phase = "hiddenself"; renderLearn(); return; }
   const ok = Voice.startListening(t => {
     if (t === null) { Voice.stopListening(); learn.micDead = true; learn.phase = "hiddenself"; renderLearn(); return; }
     learn.transcript = t;
@@ -354,10 +371,18 @@ function openingsGrade(ok) {
 }
 
 // Whole-answer checkpoint: recite the full answer, get it word-scored.
+function learnFullSelfCheck() {
+  Voice.stopListening();
+  learn.micOff = true;
+  learn.stage = "fullself";
+  renderLearn();
+}
+
 function learnFullEcho() {
   Voice.stopSpeaking();
   micRestart = learnFullEcho;
   learn.transcript = "";
+  if (learn.micOff) { learn.stage = "fullself"; renderLearn(); return; }
   const ok = Voice.startListening(t => {
     if (t === null) { Voice.stopListening(); learn.stage = "fullself"; renderLearn(); return; }
     learn.transcript = t;
@@ -463,6 +488,7 @@ function renderLearn() {
       controls = `
         <button class="btn btn-primary btn-big" onclick="learnEchoDone()">⏹ I've said it</button>
         ${micRestartBtn()}
+        <button class="btn btn-ghost" onclick="learnSelfCheck()">Skip the mic — I'll check myself</button>
         <button class="btn btn-ghost" onclick="Voice.stopListening();learn.phase='show';renderLearn()">Show it again</button>`;
     }
 
@@ -475,6 +501,7 @@ function renderLearn() {
         </div>`;
       controls = `
         <button class="btn btn-primary btn-big" onclick="learnEcho()">🎤 Try again</button>
+        <button class="btn" onclick="learnSelfCheck()">Skip the mic — I'll check myself</button>
         <button class="btn btn-ghost" onclick="learn.phase='show';renderLearn()">See the chunk again</button>`;
     }
 
@@ -499,13 +526,16 @@ function renderLearn() {
       // No microphone available: hide, speak, reveal, honest self-check.
       body = `${chunkDots()}
         ${learn.micDead ? `<div class="card result result-bad"><p>🎤 The mic stopped responding — an iPhone quirk. Carrying on without it; going back to Home for a few seconds and returning usually wakes it up.</p></div>` : ""}
+        ${learn.micOff && !learn.micDead ? `<div class="card"><p>🎤 Mic parked for now — you're judging yourself on each chunk.</p></div>` : ""}
         <div class="card">
           <p class="step-label">Chunk hidden — say it out loud, then reveal:</p>
           ${cue ? `<p class="chunk-cue">🪝 ${esc(cue)}</p>` : ""}
           <p class="cue">${esc(firstLetterCue(chunk))}</p>
           <details class="peek"><summary>How it starts</summary><p>“${esc(openingWords(chunk))}”</p></details>
         </div>`;
-      controls = `<button class="btn btn-primary btn-big" onclick="learn.phase='revealself';renderLearn()">Reveal to check</button>`;
+      controls = `
+        <button class="btn btn-primary btn-big" onclick="learn.phase='revealself';renderLearn()">Reveal to check</button>
+        ${learn.micOff ? `<button class="btn btn-ghost" onclick="learnMicBackOn()">🎤 Try the mic again</button>` : ""}`;
     }
 
     else { // revealself
@@ -549,7 +579,22 @@ function renderLearn() {
     controls = `
       <button class="btn btn-primary btn-big" onclick="learnFullDone()">⏹ I've said it</button>
       ${micRestartBtn()}
+      <button class="btn btn-ghost" onclick="learnFullSelfCheck()">Skip the mic — I'll check myself</button>
       <button class="btn btn-ghost" onclick="Voice.stopListening();learn.stage='cue';renderLearn()">Cancel</button>`;
+  }
+
+  else if (stage === "fullcheck" && !learn.transcript.trim()) {
+    // Nothing captured — that's the mic, not the recall. Don't score it 0%.
+    label = "whole answer";
+    body = `
+      <div class="card result result-bad">
+        <p class="result-title">🎤 I didn't hear anything</p>
+        <p>Probably a mic hiccup, not you.</p>
+      </div>`;
+    controls = `
+      <button class="btn btn-primary btn-big" onclick="learnFullEcho()">🎤 Try again</button>
+      <button class="btn" onclick="learnFullSelfCheck()">Skip the mic — I'll check myself</button>
+      <button class="btn btn-ghost" onclick="learnRestartChunks()">↩ Practise the chunks again</button>`;
   }
 
   else if (stage === "fullcheck") {

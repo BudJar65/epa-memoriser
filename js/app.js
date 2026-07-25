@@ -1,7 +1,7 @@
 // EPA Answer Memoriser — UI and flows.
 // Screens: home, learn, quiz, drill (evidence), walk, browse, detail, progress, settings.
 
-const APP_VERSION = "v27"; // shown on the home screen; bumped every release
+const APP_VERSION = "v28"; // shown on the home screen; bumped every release
 
 const $ = sel => document.querySelector(sel);
 const app = () => $("#app");
@@ -189,6 +189,15 @@ function learnHide() {
   renderLearn();
 }
 
+// "Try again" after a miss. This lands back on the chunk screen, which looks
+// almost identical to the reveal screen it came from — so flag it, or the tap
+// feels like it did nothing.
+function learnTryAgain() {
+  learn.retry = true;
+  learn.phase = "show";
+  renderLearn();
+}
+
 function learnNextChunk() {
   Voice.stopSpeaking();
   if (learn.idx < learn.chunks.length - 1) {
@@ -309,10 +318,12 @@ function renderLearn() {
     const cue = (entry.cues || [])[idx] || "";
     if (phase === "show") {
       const opDone = learn.opDone; learn.opDone = false;
+      const retry = learn.retry; learn.retry = false;
       body = `${chunkDots()}
         ${opDone ? `<div class="card result result-good"><p>✅ Openings nailed — now the full chunks.</p></div>` : ""}
+        ${retry ? `<div class="card result result-bad"><p class="result-title">🔁 Here it is again</p><p>Read it through, listen to it, then hide it and have another go.</p></div>` : ""}
         ${cue ? `<p class="chunk-cue">🪝 ${esc(cue)}</p>` : ""}
-        <p class="step-label">Read it and listen — the <b>bold opening</b> is your way in. Then say it back with the text hidden:</p>
+        <p class="step-label">${retry ? "The <b>bold opening</b> is your way in — get that and the rest follows:" : "Read it and listen — the <b>bold opening</b> is your way in. Then say it back with the text hidden:"}</p>
         <div class="card beat beat-new">${chunkHtml(chunk)}</div>`;
       controls = `
         <button class="btn" onclick="speakChunk()">🔊 Hear it again</button>
@@ -340,7 +351,7 @@ function renderLearn() {
         <div class="card beat beat-new">${chunkHtml(chunk)}</div>`;
       controls = `
         <div class="grade-row">
-          <button class="btn grade-bad" onclick="learn.phase='show';renderLearn()">Try again</button>
+          <button class="btn grade-bad" onclick="learnTryAgain()">Show me again</button>
           <button class="btn grade-good" onclick="learnNextChunk()">${idx === chunks.length - 1 ? "Got it — whole answer" : "Got it"}</button>
         </div>`;
     }
@@ -471,6 +482,36 @@ function renderQuiz() {
       </div>`;
   }
 
+  else if (quiz.phase === "restudy") {
+    const missed = quiz.scoreInfo.score < 0.6;
+    body = `
+      <div class="card">
+        <p class="q-label">What you should have said:</p>
+        <p>${esc(entry.beats.join(" "))}</p>
+        <p class="q-label" style="margin-top:0.8em">Key points you needed:</p>
+        <ul class="kp-list">${entry.keypoints.map(kp => `<li>• ${esc(kp.t)}</li>`).join("")}</ul>
+      </div>
+      <p class="hint">Marked <b>${missed ? "Missed it" : "Partly"}</b> — that's what counts towards your
+        review schedule, so this is free practice. Go round as many times as you like.</p>`;
+    controls = `
+      <button class="btn" onclick="speakQuizAnswer()">🔊 Read it to me</button>
+      <button class="btn btn-primary btn-big" onclick="quiz.phase='retry';renderQuiz()">🔁 Hide it — I'll say it again</button>
+      <button class="btn btn-ghost" onclick="quizToKsb()">Carry on — which KSB is this?</button>`;
+  }
+
+  else if (quiz.phase === "retry") {
+    body = `
+      <div class="card question-card">
+        <p class="q-label">Assessor asks:</p>
+        <p class="q-text">${esc(q)}</p>
+      </div>
+      <p class="hint">Free practice — say the whole answer out loud again, then check it.</p>`;
+    controls = `
+      <button class="btn btn-primary btn-big" onclick="quiz.phase='restudy';renderQuiz()">Show me the answer again</button>
+      <button class="btn btn-ghost" onclick="quizToKsb()">Carry on — which KSB is this?</button>`;
+    speakQuizQuestion();
+  }
+
   else if (quiz.phase === "ksb") {
     if (!quiz.ksbOptions) {
       const others = shuffle(ANSWER_BANK.filter(e => e.id !== entry.id)).slice(0, 3).map(e => e.ksb);
@@ -550,7 +591,10 @@ function quizReveal() { quiz.phase = "self"; renderQuiz(); }
 
 function quizSelfGrade(v) {
   quiz.scoreInfo = { score: v, hits: [] };
-  quiz.phase = "ksb";
+  // Graded yourself short? Go and re-read it, and say it again as many times
+  // as you like. The grade above is the one that counts towards the review
+  // schedule — the retry is free practice, so the schedule stays honest.
+  quiz.phase = v >= 1 ? "ksb" : "restudy";
   renderQuiz();
 }
 

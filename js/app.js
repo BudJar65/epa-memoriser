@@ -1,7 +1,7 @@
 // EPA Answer Memoriser — UI and flows.
 // Screens: home, learn, quiz, drill (evidence), walk, browse, detail, progress, settings.
 
-const APP_VERSION = "v26"; // shown on the home screen; bumped every release
+const APP_VERSION = "v27"; // shown on the home screen; bumped every release
 
 const $ = sel => document.querySelector(sel);
 const app = () => $("#app");
@@ -41,7 +41,7 @@ function firstLetterCue(text) {
   }).join(" ");
 }
 
-// ---- Global pause: freezes narration, mic and auto-advance in place ----
+// ---- Global pause: freezes narration and auto-advance in place ----
 const Pause = {
   paused: false,
   toggle() { this.paused ? this.resume() : this.pause(); },
@@ -49,7 +49,6 @@ const Pause = {
     this.paused = true;
     if (Voice.synth) { try { Voice.synth.pause(); } catch (e) {} }
     AudioPlayer.pauseClip();
-    Voice.suspendListening();
     document.getElementById("pause-overlay").classList.add("show");
   },
   resume() {
@@ -57,7 +56,6 @@ const Pause = {
     document.getElementById("pause-overlay").classList.remove("show");
     if (Voice.synth) { try { Voice.synth.resume(); } catch (e) {} }
     AudioPlayer.resumeClip();
-    Voice.resumeListening();
   },
   setVisible(on) {
     document.getElementById("pause-btn").classList.toggle("show", !!on);
@@ -71,49 +69,6 @@ function afterUnpaused(fn) {
   const iv = setInterval(() => {
     if (!Pause.paused) { clearInterval(iv); fn(); }
   }, 250);
-}
-
-// ---- Live mic status: "warming up" until capture truly engages ----
-function micStatusHtml() {
-  const live = Voice._audioStarted;
-  return `<p class="mic-live ${live ? "" : "mic-warm"}" id="mic-status">${live ? "🎤 Listening — speak!" : "⏳ Mic warming up — wait for it…"}</p>`;
-}
-
-function armMicStatus() {
-  Voice.onAudioLive = () => {
-    const el = $("#mic-status");
-    if (!el) return;
-    if (Voice._deafRetries) {
-      // Came back from a wedge — don't claim all is well until a word lands.
-      el.textContent = "⚠️ Mic restarted — say a word so I can check it's hearing you";
-      el.classList.add("mic-warm");
-    } else {
-      el.textContent = "🎤 Listening — speak!";
-      el.classList.remove("mic-warm");
-    }
-  };
-  // Mic is capturing but no words are coming back — say so rather than sitting
-  // on a cheerful "Listening" while nothing happens.
-  Voice.onMicTrouble = () => {
-    const el = $("#mic-status");
-    if (el) { el.textContent = "⚠️ Not picking up your words — rebuilding the mic…"; el.classList.add("mic-warm"); }
-  };
-}
-
-// Manual mic rescue: iOS can leave the recogniser "live but deaf" — rebuilding
-// it from scratch fixes that. Each listening screen registers how to re-arm.
-let micRestart = null;
-function restartMic() {
-  Voice.hardStop();
-  Voice.stopSpeaking();
-  const el = $("#mic-status");
-  if (el) { el.textContent = "⏳ Restarting the mic — give it a couple of seconds…"; el.classList.add("mic-warm"); }
-  // Leaving the screen and returning revives a wedged mic; mimic that with a
-  // full teardown plus a longer pause so iOS truly lets go of the session.
-  setTimeout(() => { if (micRestart) micRestart(); }, 1600);
-}
-function micRestartBtn() {
-  return `<button class="btn btn-ghost" onclick="restartMic()">🔄 Mic not hearing you? Tap to restart it</button>`;
 }
 
 // ---- Narration helpers: map spoken content to its pre-generated clip keys ----
@@ -199,8 +154,8 @@ function renderHome() {
 
 // ---------------------------------------------------------------- LEARN
 // Echo method: see one sentence-sized chunk -> it's hidden -> you say it
-// back from memory -> the mic transcript is checked word by word. Then
-// the whole answer from first-letter hints only.
+// back out loud from memory -> reveal it and judge yourself honestly.
+// Then the whole answer from first-letter hints only.
 let learn = null;
 
 // Split the answer into sentence-sized chunks (mirrors tools/build_audio.py
@@ -213,75 +168,9 @@ function chunkify(entry) {
   return out;
 }
 
-// Small filler words don't count towards the echo score.
-const STOPWORDS = new Set("a an the and or of to in on by for with as at is are was were it its this that these those i my me so then than be been which into from their they them we our you your also had has have not but".split(" "));
-
-// Spoken number words -> digits, so "three" matches "3" in page references.
-const NUMWORDS = {
-  zero: "0", one: "1", two: "2", three: "3", four: "4", five: "5", six: "6",
-  seven: "7", eight: "8", nine: "9", ten: "10", eleven: "11", twelve: "12",
-  thirteen: "13", fourteen: "14", fifteen: "15", sixteen: "16", seventeen: "17",
-  eighteen: "18", nineteen: "19", twenty: "20", thirty: "30", forty: "40",
-  fifty: "50", sixty: "60", seventy: "70", eighty: "80", ninety: "90"
-};
-
-function normWords(s) {
-  return (s || "").toLowerCase().replace(/[’']/g, "")
-    .replace(/[^a-z0-9\s-]/g, " ").replace(/-/g, " ")
-    .split(/\s+/).filter(Boolean)
-    .map(w => NUMWORDS[w] || w);
-}
-
-// Crude stem so "scheduled"/"schedule" and "interviews"/"interview" match.
-function stem(w) {
-  return w.length > 4 ? w.replace(/(ing|ed|es|s|d)$/, "") : w;
-}
-
-// Everything the user said, as exact words, stems, and joined number pairs
-// ("sixty" "seven" -> "67") so matching is forgiving of transcription quirks.
-function spokenSetOf(spoken) {
-  const words = normWords(spoken);
-  const set = new Set();
-  for (let i = 0; i < words.length; i++) {
-    set.add(words[i]);
-    set.add(stem(words[i]));
-    const a = words[i], b = words[i + 1];
-    if (b && /^\d+0$/.test(a) && /^\d$/.test(b)) set.add(String(+a + +b));
-  }
-  return set;
-}
-
-function wordHeard(w, spokenSet) {
-  return spokenSet.has(w) || spokenSet.has(stem(w));
-}
-
-// Fraction of the chunk's content words that appeared in the transcript.
-function echoScore(target, spoken) {
-  const spokenSet = spokenSetOf(spoken);
-  let content = 0, hit = 0;
-  for (const w of normWords(target)) {
-    if (STOPWORDS.has(w)) continue;
-    content++;
-    if (wordHeard(w, spokenSet)) hit++;
-  }
-  return content ? hit / content : 1;
-}
-
-// The chunk text with each word coloured by whether it was heard.
-function echoDiffHtml(target, spoken) {
-  const spokenSet = spokenSetOf(spoken);
-  return target.split(/\s+/).map(tok => {
-    const words = normWords(tok);
-    if (!words.length || words.every(w => STOPWORDS.has(w))) return esc(tok);
-    const ok = words.every(w => STOPWORDS.has(w) || wordHeard(w, spokenSet));
-    return `<span class="${ok ? "kp-hit" : "kp-miss"}">${esc(tok)}</span>`;
-  }).join(" ");
-}
-
 function startLearn(id) {
   const entry = ANSWER_BANK.find(e => e.id === id);
-  learn = { entry, chunks: chunkify(entry), stage: "intro", idx: 0,
-            phase: "show", transcript: "", result: null };
+  learn = { entry, chunks: chunkify(entry), stage: "intro", idx: 0, phase: "show" };
   renderLearn();
 }
 
@@ -293,50 +182,17 @@ function chunkDots() {
     `<span class="dot ${i < learn.idx ? "dot-on" : i === learn.idx ? "dot-now" : ""}"></span>`).join("")}</p>`;
 }
 
-// The mic can sit there looking alive and still capture nothing (iOS). Any
-// listening screen can bail out to the self-check path; doing so parks the mic
-// for the rest of this session so the same fight isn't repeated every chunk.
-function learnSelfCheck() {
-  Voice.stopListening();
-  learn.micOff = true;
-  learn.micDead = false;
-  learn.phase = "hiddenself";
-  renderLearn();
-}
-
-function learnMicBackOn() {
-  learn.micOff = false;
-  learnEcho();
-}
-
-function learnEcho() {
+// Hide the chunk: say it out loud from the first-letter cue, then reveal.
+function learnHide() {
   Voice.stopSpeaking();
-  micRestart = learnEcho;
-  learn.transcript = "";
-  learn.micDead = false;
-  if (learn.micOff) { learn.phase = "hiddenself"; renderLearn(); return; }
-  const ok = Voice.startListening(t => {
-    if (t === null) { Voice.stopListening(); learn.micDead = true; learn.phase = "hiddenself"; renderLearn(); return; }
-    learn.transcript = t;
-    const el = $("#live-transcript");
-    if (el) el.textContent = t || "…";
-  });
-  learn.phase = ok ? "echo" : "hiddenself";
-  renderLearn();
-  armMicStatus();
-}
-
-function learnEchoDone() {
-  learn.transcript = Voice.stopListening();
-  learn.result = echoScore(learn.chunks[learn.idx], learn.transcript);
-  learn.phase = "check";
+  learn.phase = "hidden";
   renderLearn();
 }
 
 function learnNextChunk() {
   Voice.stopSpeaking();
   if (learn.idx < learn.chunks.length - 1) {
-    learn.idx += 1; learn.phase = "show"; learn.transcript = ""; learn.result = null;
+    learn.idx += 1; learn.phase = "show";
   } else {
     learn.stage = "cue";
   }
@@ -344,16 +200,15 @@ function learnNextChunk() {
 }
 
 function learnBackChunk() {
-  Voice.stopSpeaking(); Voice.stopListening();
+  Voice.stopSpeaking();
   if (learn.idx > 0) learn.idx -= 1;
-  learn.phase = "show"; learn.transcript = ""; learn.result = null;
+  learn.phase = "show";
   renderLearn();
 }
 
 function learnRestartChunks() {
-  Voice.stopSpeaking(); Voice.stopListening();
+  Voice.stopSpeaking();
   learn.stage = "chunk"; learn.idx = 0; learn.phase = "show";
-  learn.transcript = ""; learn.result = null;
   renderLearn();
 }
 
@@ -384,34 +239,10 @@ function openingsGrade(ok) {
   renderLearn();
 }
 
-// Whole-answer checkpoint: recite the full answer, get it word-scored.
-function learnFullSelfCheck() {
-  Voice.stopListening();
-  learn.micOff = true;
-  learn.stage = "fullself";
-  renderLearn();
-}
-
-function learnFullEcho() {
+// Whole-answer checkpoint: say it all from the signposts, then compare.
+function learnFullReveal() {
   Voice.stopSpeaking();
-  micRestart = learnFullEcho;
-  learn.transcript = "";
-  if (learn.micOff) { learn.stage = "fullself"; renderLearn(); return; }
-  const ok = Voice.startListening(t => {
-    if (t === null) { Voice.stopListening(); learn.stage = "fullself"; renderLearn(); return; }
-    learn.transcript = t;
-    const el = $("#live-transcript");
-    if (el) el.textContent = t || "…";
-  });
-  learn.stage = ok ? "fullecho" : "fullself";
-  renderLearn();
-  armMicStatus();
-}
-
-function learnFullDone() {
-  learn.transcript = Voice.stopListening();
-  learn.result = echoScore(learn.entry.beats.join(" "), learn.transcript);
-  learn.stage = "fullcheck";
+  learn.stage = "full";
   renderLearn();
 }
 
@@ -485,62 +316,13 @@ function renderLearn() {
         <div class="card beat beat-new">${chunkHtml(chunk)}</div>`;
       controls = `
         <button class="btn" onclick="speakChunk()">🔊 Hear it again</button>
-        <button class="btn btn-primary btn-big" onclick="learnEcho()">Hide it — I'll say it back</button>
+        <button class="btn btn-primary btn-big" onclick="learnHide()">Hide it — I'll say it back</button>
         ${idx > 0 ? `<button class="btn btn-ghost" onclick="learnBackChunk()">‹ Back a chunk</button>` : ""}`;
       speakChunk();
     }
 
-    else if (phase === "echo") {
+    else if (phase === "hidden") {
       body = `${chunkDots()}
-        <div class="card listening">
-          ${micStatusHtml()}
-          ${cue ? `<p class="chunk-cue">🪝 ${esc(cue)}</p>` : ""}
-          <p class="cue">${esc(firstLetterCue(chunk))}</p>
-          <details class="peek"><summary>How it starts</summary><p>“${esc(openingWords(chunk))}”</p></details>
-          <p class="transcript" id="live-transcript">${esc(learn.transcript || "…")}</p>
-        </div>`;
-      controls = `
-        <button class="btn btn-primary btn-big" onclick="learnEchoDone()">⏹ I've said it</button>
-        ${micRestartBtn()}
-        <button class="btn btn-ghost" onclick="learnSelfCheck()">Skip the mic — I'll check myself</button>
-        <button class="btn btn-ghost" onclick="Voice.stopListening();learn.phase='show';renderLearn()">Show it again</button>`;
-    }
-
-    else if (phase === "check" && !learn.transcript.trim()) {
-      // The mic captured nothing — that's a hiccup, not a failure.
-      body = `${chunkDots()}
-        <div class="card result result-bad">
-          <p class="result-title">🎤 I didn't hear anything</p>
-          <p>Probably a mic hiccup, not you. Try saying it again.</p>
-        </div>`;
-      controls = `
-        <button class="btn btn-primary btn-big" onclick="learnEcho()">🎤 Try again</button>
-        <button class="btn" onclick="learnSelfCheck()">Skip the mic — I'll check myself</button>
-        <button class="btn btn-ghost" onclick="learn.phase='show';renderLearn()">See the chunk again</button>`;
-    }
-
-    else if (phase === "check") {
-      const pct = Math.round(learn.result * 100);
-      const pass = learn.result >= 0.7;
-      body = `${chunkDots()}
-        <div class="card result ${pass ? "result-good" : "result-bad"}">
-          <p class="result-title">${pass ? "✅" : "🔁"} You echoed ${pct}% of the key words</p>
-        </div>
-        <div class="card beat">${echoDiffHtml(chunk, learn.transcript)}</div>
-        <details class="peek"><summary>What I heard</summary><p>${esc(learn.transcript || "(nothing)")}</p></details>`;
-      controls = pass ? `
-        <button class="btn btn-primary btn-big" onclick="learnNextChunk()">${idx === chunks.length - 1 ? "Now the whole answer" : "Next chunk →"}</button>
-        <button class="btn btn-ghost" onclick="learnEcho()">Say it again anyway</button>` : `
-        <button class="btn btn-primary btn-big" onclick="learn.phase='show';renderLearn()">See it again</button>
-        <button class="btn" onclick="learnEcho()">Try again from memory</button>
-        <button class="btn btn-ghost" onclick="learnNextChunk()">Move on anyway</button>`;
-    }
-
-    else if (phase === "hiddenself") {
-      // No microphone available: hide, speak, reveal, honest self-check.
-      body = `${chunkDots()}
-        ${learn.micDead ? `<div class="card result result-bad"><p>🎤 The mic stopped responding — an iPhone quirk. Carrying on without it; going back to Home for a few seconds and returning usually wakes it up.</p></div>` : ""}
-        ${learn.micOff && !learn.micDead ? `<div class="card"><p>🎤 Mic parked for now — you're judging yourself on each chunk.</p></div>` : ""}
         <div class="card">
           <p class="step-label">Chunk hidden — say it out loud, then reveal:</p>
           ${cue ? `<p class="chunk-cue">🪝 ${esc(cue)}</p>` : ""}
@@ -548,17 +330,18 @@ function renderLearn() {
           <details class="peek"><summary>How it starts</summary><p>“${esc(openingWords(chunk))}”</p></details>
         </div>`;
       controls = `
-        <button class="btn btn-primary btn-big" onclick="learn.phase='revealself';renderLearn()">Reveal to check</button>
-        ${learn.micOff ? `<button class="btn btn-ghost" onclick="learnMicBackOn()">🎤 Try the mic again</button>` : ""}`;
+        <button class="btn btn-primary btn-big" onclick="learn.phase='reveal';renderLearn()">Reveal to check</button>
+        <button class="btn btn-ghost" onclick="learn.phase='show';renderLearn()">Show it again</button>`;
     }
 
-    else { // revealself
+    else { // reveal — how did you do?
       body = `${chunkDots()}
+        <p class="step-label">How did you do?</p>
         <div class="card beat beat-new">${chunkHtml(chunk)}</div>`;
       controls = `
         <div class="grade-row">
-          <button class="btn grade-bad" onclick="learn.phase='show';renderLearn()">Show me again</button>
-          <button class="btn grade-good" onclick="learnNextChunk()">Got it</button>
+          <button class="btn grade-bad" onclick="learn.phase='show';renderLearn()">Try again</button>
+          <button class="btn grade-good" onclick="learnNextChunk()">${idx === chunks.length - 1 ? "Got it — whole answer" : "Got it"}</button>
         </div>`;
     }
   }
@@ -576,66 +359,17 @@ function renderLearn() {
       <details class="peek"><summary>First-letter hints</summary><p class="cue">${esc(firstLetterCue(full))}</p></details>
       <details class="peek"><summary>Peek at the full answer</summary><p>${esc(full)}</p></details>`;
     controls = `
-      <button class="btn btn-primary btn-big" onclick="learnFullEcho()">🎤 Say the whole answer — check me</button>
+      <button class="btn btn-primary btn-big" onclick="learnFullReveal()">I've said it — show me the answer</button>
       <button class="btn" onclick="speakLearnFull()">🔊 Hear it once more</button>
       <button class="btn" onclick="learnRestartChunks()">↩ Practise the chunks again</button>
       <button class="btn btn-ghost" onclick="finishLearn()">Skip the check — quiz me</button>`;
   }
 
-  else if (stage === "fullecho") {
-    label = "whole answer";
-    body = `
-      <div class="card listening">
-        ${micStatusHtml()}
-        <p class="chunk-cue">${(entry.cues || []).map(esc).join(" → ")}</p>
-        <p class="transcript" id="live-transcript">${esc(learn.transcript || "…")}</p>
-      </div>`;
-    controls = `
-      <button class="btn btn-primary btn-big" onclick="learnFullDone()">⏹ I've said it</button>
-      ${micRestartBtn()}
-      <button class="btn btn-ghost" onclick="learnFullSelfCheck()">Skip the mic — I'll check myself</button>
-      <button class="btn btn-ghost" onclick="Voice.stopListening();learn.stage='cue';renderLearn()">Cancel</button>`;
-  }
-
-  else if (stage === "fullcheck" && !learn.transcript.trim()) {
-    // Nothing captured — that's the mic, not the recall. Don't score it 0%.
-    label = "whole answer";
-    body = `
-      <div class="card result result-bad">
-        <p class="result-title">🎤 I didn't hear anything</p>
-        <p>Probably a mic hiccup, not you.</p>
-      </div>`;
-    controls = `
-      <button class="btn btn-primary btn-big" onclick="learnFullEcho()">🎤 Try again</button>
-      <button class="btn" onclick="learnFullSelfCheck()">Skip the mic — I'll check myself</button>
-      <button class="btn btn-ghost" onclick="learnRestartChunks()">↩ Practise the chunks again</button>`;
-  }
-
-  else if (stage === "fullcheck") {
-    label = "whole answer";
-    const full = entry.beats.join(" ");
-    const pct = Math.round(learn.result * 100);
-    const pass = learn.result >= 0.7;
-    body = `
-      <div class="card result ${pass ? "result-good" : "result-bad"}">
-        <p class="result-title">${pass ? `✅ ${pct}% — you've got it` : `🔁 ${pct}% — not quite yet`}</p>
-      </div>
-      <div class="card beat">${echoDiffHtml(full, learn.transcript)}</div>
-      <details class="peek"><summary>What I heard</summary><p>${esc(learn.transcript || "(nothing)")}</p></details>`;
-    controls = pass ? `
-      <button class="btn btn-primary btn-big" onclick="finishLearn()">Done — quiz me on it</button>
-      <button class="btn" onclick="learnFullEcho()">🎤 Say it again</button>
-      <button class="btn btn-ghost" onclick="learnRestartChunks()">↩ Practise the chunks again</button>` : `
-      <button class="btn btn-primary btn-big" onclick="learnRestartChunks()">↩ Practise the chunks again</button>
-      <button class="btn" onclick="learnFullEcho()">🎤 Say it again</button>
-      <button class="btn btn-ghost" onclick="finishLearn()">Quiz me anyway</button>`;
-  }
-
-  else { // fullself: no microphone — reveal and judge honestly
+  else { // full — the whole answer revealed; judge yourself honestly
     label = "whole answer";
     const full = entry.beats.join(" ");
     body = `
-      <p class="step-label">No mic available — say it out loud, then compare:</p>
+      <p class="step-label">How close was it?</p>
       <div class="card beat">${esc(full)}</div>`;
     controls = `
       <div class="grade-row">
@@ -646,7 +380,7 @@ function renderLearn() {
 
   app().innerHTML = `
     <header class="top slim">
-      <button class="btn-back" onclick="Voice.stopSpeaking();Voice.stopListening();renderHome()">‹ Home</button>
+      <button class="btn-back" onclick="Voice.stopSpeaking();renderHome()">‹ Home</button>
       <span>Learn #${entry.id} &middot; ${label}</span>
     </header>
     ${body}
@@ -661,8 +395,8 @@ function finishLearn() {
 }
 
 // ---------------------------------------------------------------- QUIZ
-// One full test of an entry: question -> answer (listen or self-grade)
-// -> KSB check -> evidence check -> result.
+// One full test of an entry: question -> say it out loud -> reveal and
+// self-grade -> KSB check -> evidence check -> result.
 let quiz = null;
 
 function buildQueue(ids) {
@@ -683,8 +417,8 @@ function startQuiz(ids, walkMode) {
   }
   quiz = {
     queue, idx: 0, walk: !!walkMode,
-    phase: "question", transcript: "", scoreInfo: null,
-    ksbOk: null, evOk: null, selfGrade: null,
+    phase: "question", scoreInfo: null,
+    ksbOk: null, evOk: null,
     results: []
   };
   if (walkMode) WakeLock.on();
@@ -699,7 +433,6 @@ function renderQuiz() {
   Pause.setVisible(true);
   const entry = quizEntry();
   const s = Engine.entry(entry.id);
-  const mode = Engine.settings.quizMode;
   if (!quiz.question) {
     quiz.qIndex = Math.floor(Math.random() * entry.questions.length);
     quiz.question = entry.questions[quiz.qIndex];
@@ -713,45 +446,11 @@ function renderQuiz() {
         <p class="q-label">Assessor asks:</p>
         <p class="q-text">${esc(q)}</p>
       </div>
-      ${quiz.micFailed ? `<p class="hint" style="color:var(--bad)">🎤 The mic didn't catch anything that time — give it another go.</p>` : ""}
       <p class="hint">Different wordings, same model answer. Sentence one answers this exact question, then evidence location, then the full structure.</p>`;
-    if (mode === "listen" && Voice.sttSupported()) {
-      controls = `
-        <button class="btn" onclick="speakQuizQuestion()">🔊 Repeat question</button>
-        <button class="btn btn-primary btn-big" onclick="quizListen()">🎤 I'm answering — listen</button>
-        <button class="btn btn-ghost" onclick="quizReveal()">Skip mic — self-grade instead</button>`;
-    } else {
-      controls = `
-        <button class="btn" onclick="speakQuizQuestion()">🔊 Repeat question</button>
-        <button class="btn btn-primary btn-big" onclick="quizReveal()">I've answered — show me the answer</button>`;
-    }
-    speakQuizQuestion();
-  }
-
-  else if (quiz.phase === "listening") {
-    body = `
-      <div class="card question-card"><p class="q-text">${esc(q)}</p></div>
-      <div class="card listening">
-        ${micStatusHtml()}
-        <p class="transcript" id="live-transcript">${esc(quiz.transcript || "…")}</p>
-      </div>`;
     controls = `
-      <button class="btn btn-primary btn-big" onclick="quizStopListen()">⏹ Finished answering</button>
-      ${micRestartBtn()}`;
-  }
-
-  else if (quiz.phase === "score") {
-    const { score, hits } = quiz.scoreInfo;
-    body = `
-      <div class="card">
-        <p class="score-line">You hit <b>${hits.filter(Boolean).length} of ${hits.length}</b> key points (${Math.round(score * 100)}%)</p>
-        <ul class="kp-list">
-          ${entry.keypoints.map((kp, i) =>
-            `<li class="${hits[i] ? "kp-hit" : "kp-miss"}">${hits[i] ? "✅" : "❌"} ${esc(kp.t)}</li>`).join("")}
-        </ul>
-        <details class="peek"><summary>Model answer</summary><p>${esc(entry.beats.join(" "))}</p></details>
-      </div>`;
-    controls = `<button class="btn btn-primary btn-big" onclick="quizToKsb()">Next: which KSB is this?</button>`;
+      <button class="btn" onclick="speakQuizQuestion()">🔊 Repeat question</button>
+      <button class="btn btn-primary btn-big" onclick="quizReveal()">I've answered — show me the answer</button>`;
+    speakQuizQuestion();
   }
 
   else if (quiz.phase === "self") {
@@ -787,53 +486,26 @@ function renderQuiz() {
   }
 
   else if (quiz.phase === "evidence") {
-    const spokenEv = mode === "listen" && Voice.sttSupported() && !quiz.forceEvMc;
-    if (spokenEv) {
-      body = `
-        <div class="card question-card"><p class="q-label">Assessor: “Where do you evidence that?”</p></div>
-        <p class="hint">Say it out loud: document, pages, heading.</p>`;
-      controls = `
-        <button class="btn btn-primary btn-big" onclick="quizEvListen()">🎤 I'll say it — listen</button>
-        <button class="btn btn-ghost" onclick="quiz.forceEvMc=true;renderQuiz()">Show me choices instead</button>`;
-    } else {
-      if (!quiz.evOptions) {
-        const others = shuffle(ANSWER_BANK.filter(e => e.id !== entry.id)).slice(0, 2).map(e => e.sayFirst);
-        quiz.evOptions = shuffle([entry.sayFirst, ...others]);
-      }
-      body = `
-        <div class="card question-card"><p class="q-label">Assessor: “Where do you evidence that?”</p>
-        <p class="hint" style="text-align:left">Only ONE of these is the evidence line for <b>this</b> answer — the other two belong to different answers. Pick yours.</p></div>
-        <div class="mc">${quiz.evOptions.map((o, i) =>
-          `<button class="btn mc-opt mc-long" onclick="quizPickEv(${i})">${esc(o)}</button>`).join("")}</div>`;
-      controls = "";
-    }
-    if (quiz.walk || spokenEv) Voice.speak("Where do you evidence that?", null, ["g-whereev"]);
+    body = `
+      <div class="card question-card"><p class="q-label">Assessor: “Where do you evidence that?”</p></div>
+      <p class="hint">Say it out loud — document, pages, heading — then reveal and mark yourself.</p>`;
+    controls = `<button class="btn btn-primary btn-big" onclick="quiz.phase='evreveal';renderQuiz()">Reveal the evidence line</button>`;
+    Voice.speak("Where do you evidence that?", null, ["g-whereev"]);
   }
 
-  else if (quiz.phase === "evlisten") {
+  else if (quiz.phase === "evreveal") {
     body = `
-      <div class="card listening">
-        ${micStatusHtml()}
-        <p class="hint">Say the evidence location: document, pages, heading.</p>
-        <p class="transcript" id="live-transcript">${esc(quiz.transcriptEv || "…")}</p>
+      <div class="card">
+        <p class="q-label">You should say:</p>
+        <p><b>“${esc(entry.sayFirst)}”</b></p>
+        <p class="q-label" style="margin-top:0.8em">Strongest location:</p>
+        <p>${esc(entry.evidence.primary)}</p>
       </div>`;
     controls = `
-      <button class="btn btn-primary btn-big" onclick="quizEvDone()">⏹ I've said it</button>
-      ${micRestartBtn()}`;
-  }
-
-  else if (quiz.phase === "evcheck") {
-    const pass = quiz.evScore >= 0.5;
-    body = `
-      <div class="card result ${pass ? "result-good" : "result-bad"}">
-        <p class="result-title">${pass ? "✅ Evidence location right" : "🔁 Evidence location shaky"} (${Math.round(quiz.evScore * 100)}%)</p>
-      </div>
-      <div class="card"><p class="q-label">You should say:</p>
-        <p>${echoDiffHtml(entry.sayFirst, quiz.transcriptEv)}</p></div>
-      <details class="peek"><summary>What I heard</summary><p>${esc(quiz.transcriptEv || "(nothing)")}</p></details>`;
-    controls = `
-      <button class="btn btn-primary btn-big" onclick="recordEv(${pass})">Continue</button>
-      <button class="btn btn-ghost" onclick="recordEv(${!pass})">${pass ? "Actually, I got it wrong" : "It was right, the mic misheard"}</button>`;
+      <div class="grade-row">
+        <button class="btn grade-bad" onclick="recordEv(false)">Missed it</button>
+        <button class="btn grade-good" onclick="recordEv(true)">Got it</button>
+      </div>`;
     Voice.speak(entry.sayFirst, null, [`e${entry.id}-sayfirst`]);
   }
 
@@ -874,41 +546,6 @@ function renderQuiz() {
   `;
 }
 
-function quizListen() {
-  micRestart = quizListen;
-  quiz.phase = "listening";
-  quiz.transcript = "";
-  const ok = Voice.startListening(t => {
-    if (t === null) { // mic blocked
-      quiz.phase = "self";
-      renderQuiz();
-      return;
-    }
-    quiz.transcript = t;
-    const el = $("#live-transcript");
-    if (el) el.textContent = t || "…";
-  });
-  if (!ok) { quiz.phase = "self"; }
-  renderQuiz();
-  armMicStatus();
-}
-
-function quizStopListen() {
-  const transcript = Voice.stopListening();
-  quiz.transcript = transcript;
-  if (!transcript.trim()) {
-    // Mic hiccup: don't score an empty capture — offer the question again.
-    quiz.micFailed = true;
-    quiz.phase = "question";
-    renderQuiz();
-    return;
-  }
-  quiz.micFailed = false;
-  quiz.scoreInfo = Engine.scoreTranscript(quizEntry(), transcript);
-  quiz.phase = "score";
-  renderQuiz();
-}
-
 function quizReveal() { quiz.phase = "self"; renderQuiz(); }
 
 function quizSelfGrade(v) {
@@ -922,35 +559,6 @@ function quizToKsb() { quiz.phase = "ksb"; renderQuiz(); }
 function quizPickKsb(pick) {
   quiz.ksbOk = pick === quizEntry().ksb;
   quiz.phase = "evidence";
-  renderQuiz();
-}
-
-function quizPickEv(i) { recordEv(quiz.evOptions[i] === quizEntry().sayFirst); }
-
-function quizEvListen() {
-  micRestart = quizEvListen;
-  quiz.transcriptEv = "";
-  const ok = Voice.startListening(t => {
-    if (t === null) { quiz.forceEvMc = true; quiz.phase = "evidence"; renderQuiz(); return; }
-    quiz.transcriptEv = t;
-    const el = $("#live-transcript");
-    if (el) el.textContent = t || "…";
-  });
-  if (!ok) { quiz.forceEvMc = true; quiz.phase = "evidence"; renderQuiz(); return; }
-  quiz.phase = "evlisten";
-  renderQuiz();
-  armMicStatus();
-}
-
-function quizEvDone() {
-  quiz.transcriptEv = Voice.stopListening();
-  if (!quiz.transcriptEv.trim()) {
-    quiz.phase = "evidence"; // mic hiccup: ask again rather than score zero
-    renderQuiz();
-    return;
-  }
-  quiz.evScore = echoScore(quizEntry().sayFirst, quiz.transcriptEv);
-  quiz.phase = "evcheck";
   renderQuiz();
 }
 
@@ -972,11 +580,6 @@ function resetQuizItem() {
   quiz.phase = "question";
   quiz.question = null;
   quiz.ksbOptions = null;
-  quiz.evOptions = null;
-  quiz.forceEvMc = false;
-  quiz.transcript = "";
-  quiz.transcriptEv = "";
-  quiz.evScore = null;
   quiz.scoreInfo = null;
 }
 
@@ -999,7 +602,6 @@ function quizNext() {
 
 function endQuiz(finished) {
   Voice.stopSpeaking();
-  Voice.stopListening();
   WakeLock.off();
   if (finished && quiz && quiz.results.length) {
     const clean = quiz.results.filter(r => r.clean).length;
@@ -1175,7 +777,7 @@ function historyLine(ev) {
     const e = ANSWER_BANK.find(a => a.id === ev.id);
     what = e ? `📖 Learned #${e.id} ${esc(e.ksb)} — ${esc(e.topic)}` : `📖 Learned #${ev.id}`;
   } else if (ev.kind === "quiz") {
-    what = `${ev.walk ? "🚶 Walk" : "🎤 Quiz"} session — ${ev.clean}/${ev.n} clean`;
+    what = `${ev.walk ? "🚶 Walk" : "📝 Quiz"} session — ${ev.clean}/${ev.n} clean`;
   } else if (ev.kind === "drill") {
     what = `📄 Evidence drill — ${ev.right}/${ev.n} nailed`;
   } else {
@@ -1292,16 +894,10 @@ function renderSettings() {
           ${Voice.englishVoices().map(v =>
             `<option value="${esc(v.name)}" ${st.voiceName === v.name ? "selected" : ""}>${esc(v.name)} (${esc(v.lang)})</option>`).join("")}
         </select></label>
-      <label class="setting"><span>Quiz mode</span>
-        <select onchange="Engine.settings.quizMode=this.value;Engine.saveSettings()">
-          <option value="self" ${st.quizMode === "self" ? "selected" : ""}>Self-grade (reliable)</option>
-          <option value="listen" ${st.quizMode === "listen" ? "selected" : ""}>Listen & score me (mic)</option>
-        </select></label>
       <label class="setting"><span>Walk mode auto-advance</span>
         <input type="checkbox" ${st.autoAdvance ? "checked" : ""} onchange="Engine.settings.autoAdvance=this.checked;Engine.saveSettings()"></label>
     </div>
     <div class="card">
-      <p><b>Mic on iPhone:</b> listen mode needs Settings → Siri &amp; Search → “Siri &amp; Dictation” enabled, and Safari mic permission. If it misbehaves outdoors, switch to self-grade.</p>
       <p><b>Nicer voice on iPhone:</b> download a Premium voice once in Settings → Accessibility → Spoken Content → Voices → English (UK) — e.g. “Serena (Premium)” — then pick it in the Voice list above.</p>
     </div>
     <div class="card">

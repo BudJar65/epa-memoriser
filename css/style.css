@@ -155,16 +155,7 @@ body {
 .q-text { font-size: 1.15rem; font-weight: 600; margin: 4px 0; }
 .hint { color: var(--muted); font-size: 0.88rem; text-align: center; }
 
-.listening { text-align: center; }
-.mic-live { color: var(--bad); font-weight: 700; animation: pulse 1.2s infinite; }
-.mic-live.mic-warm { color: var(--warn); animation: none; }
-@keyframes pulse { 50% { opacity: 0.45; } }
-.transcript { color: var(--muted); font-style: italic; min-height: 3em; }
-
 .kp-list { list-style: none; padding: 0; }
-.kp-hit { color: var(--good); }
-.kp-miss { color: var(--bad); }
-.score-line { font-size: 1.05rem; }
 
 .grade-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 .grade-row:has(> :nth-child(2):last-child) { grid-template-columns: 1fr 1fr; }
@@ -174,7 +165,6 @@ body {
 .grade-good { background: var(--good-bg); color: var(--good); border-color: transparent; }
 
 .mc .mc-opt { text-align: left; font-weight: 600; }
-.mc .mc-long { font-weight: 400; font-size: 0.92rem; }
 
 .result { text-align: center; }
 .result-title { font-size: 1.15rem; font-weight: 700; }

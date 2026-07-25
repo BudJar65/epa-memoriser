@@ -24,7 +24,6 @@ const DEFAULT_SETTINGS = {
   rate: 1.0,          // speech speed
   voiceName: "",      // preferred text-to-speech voice ("" = best available)
   narration: true,    // play pre-generated studio clips when available
-  quizMode: "listen", // "listen" = mic scoring, "self" = reveal & self-grade
   autoAdvance: true   // walk mode: move on automatically after grading
 };
 
@@ -54,12 +53,6 @@ const Engine = {
     catch (e) { this.settings = { ...DEFAULT_SETTINGS }; }
     try { this.history = JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; }
     catch (e) { this.history = []; }
-    // One-time switch to voice-scored quizzing (Jason's request, 2026-07-14).
-    if (!this.settings.echoMigrated) {
-      this.settings.echoMigrated = true;
-      this.settings.quizMode = "listen";
-      this.saveSettings();
-    }
     for (const e of ANSWER_BANK) {
       if (!this.state[e.id]) this.state[e.id] = defaultEntryState();
     }
@@ -200,15 +193,6 @@ const Engine = {
     if (ok) s.evRight += 1; else { s.evWrong += 1; s.due = Math.min(s.due, Date.now()); }
     s.lastSeen = Date.now();
     this.save();
-  },
-
-  // Score a spoken/typed transcript against an entry's key points.
-  // Returns { score, hits:[bool per keypoint] }
-  scoreTranscript(entry, transcript) {
-    const text = (transcript || "").toLowerCase();
-    const hits = entry.keypoints.map(kp => kp.p.some(pat => text.includes(pat)));
-    const score = hits.filter(Boolean).length / entry.keypoints.length;
-    return { score, hits };
   },
 
   // Overall progress numbers for the dashboard.

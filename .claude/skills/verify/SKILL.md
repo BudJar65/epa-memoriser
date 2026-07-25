@@ -6,42 +6,57 @@ Edge browser (`channel="msedge"` — no browser download needed).
 ## Setup (once per session)
 
 ```powershell
-python -m pip install --quiet --target <scratchpad>\pylibs playwright greenlet
+python -m pip install --quiet --target <scratchpad>\pylibs playwright greenlet quickjs
 # serve the app:
 Start-Process python -ArgumentList "-m","http.server","8484" -WorkingDirectory "D:\Projects\EPAResitMemoryApp" -WindowStyle Hidden
 ```
 
 In the script: `sys.path.insert(0, r"<scratchpad>\pylibs")` before importing
-playwright. Quick syntax check for all JS: pip-install `quickjs` and
-`Context().eval("(function(){\n" + src + "\n})")` — parse errors throw.
+playwright. Syntax-check all JS first — it's instant and catches most breakage:
+`quickjs.Context().eval("(function(){\n" + src + "\n})")` throws on parse errors.
+Run it over `js/*.js` **and** `sw.js`.
 
 ## Driving the app
 
-- Unlock screen first: fill `#pass-input` with the passphrase (see memory /
-  ask Jason), click `#pass-go`. `data.enc.json` is committed so this works
-  from a plain checkout.
+- **Unlock screen first**: fill `#pass-input` with the passphrase (see memory /
+  ask Jason), click `#pass-go`. `data.enc.json` is committed so this works from
+  a plain checkout.
+  Gotcha: don't wait on `text=EPA Answer Memoriser` — that heading is on the
+  unlock screen too, so the wait passes instantly and you test the wrong screen.
+  Wait for something only Home has: `#app button[onclick="renderProgress()"]`.
+  Allow up to 30s — decryption is deliberately slow (PBKDF2, 200k iterations).
 - Fresh profile → home CTA is `button:has-text('Learn next')` (answer #1).
-- Mic paths, both reachable:
-  - **Mic works**: launch with `--use-fake-device-for-media-stream
-    --use-fake-ui-for-media-stream` and `context.grant_permissions(["microphone"])`
-    → speech recognition engages (`onaudiostart` fires), echo screens stay up.
-    You cannot inject speech, so "I've said it" always yields the empty-capture
-    screen; you cannot pass a chunk this way.
-  - **Mic blocked** (no flags, no permission) → app falls back to the
-    hiddenself/self-grade path after the watchdog gives up (~5–8s). This is
-    the only way to walk chunks through to the whole-answer stage:
-    loop `Reveal to check` → `Got it`.
+- **There is no microphone as of v27** — every recall step is a tap, so a full
+  session can be driven end to end. No media flags or permissions needed; if
+  the app ever asks for mic access, that's a bug.
+- Learn: `Practise the openings` → loop (`Reveal the opening` → `Got it`) →
+  chunks loop (`Hide it` → `Reveal to check` → `Got it`) → whole answer
+  (`show me the answer` → `Got it`) → drops straight into the quiz.
+- Quiz: `show me the answer` → self-grade (`Got it`) → KSB (click a `.mc-opt`)
+  → `Reveal the evidence line` → `Got it` → result screen.
 - Viewport 390×844 approximates Jason's iPhone.
-- Capture `pageerror` + console errors. Expect one harmless 404: browsers
-  auto-request `/favicon.ico`, which doesn't exist.
-- Windows console is cp1252 — `.encode("ascii","replace")` before printing
-  page text (data contains ▶, arrows, curly quotes).
-- Playwright gotcha: don't mix `text=` and CSS selectors in one
-  comma-separated wait; poll with `query_selector` instead.
-- Kill the http.server process when done.
+- Capture `pageerror` and console errors. **Expect exactly two harmless 404s**
+  for `/favicon.ico`, which doesn't exist. A page-level `response` listener
+  won't see them — check the http.server log if you need to confirm what a 404
+  actually was (`-RedirectStandardError` to a file when starting the server).
+- Windows console is cp1252 — `.encode("ascii","replace")` before printing page
+  text (data contains ▶, arrows, curly quotes).
+- Playwright gotcha: don't mix `text=` and CSS selectors in one comma-separated
+  wait; poll with `query_selector` instead.
+- Kill the http.server process when done (`Get-Process python | Stop-Process`).
+
+## Useful assertions
+
+- No mic left anywhere: page text contains none of "Listening", "mic",
+  "microphone", "transcript"; and
+  `[typeof Voice.startListening, typeof window.armMicStatus, typeof window.echoScore]`
+  is all `"undefined"`. (`Voice.stopListening` etc. survive on purpose as
+  no-op stubs, so don't assert on those.)
+- Home screen shows the current `APP_VERSION`.
 
 ## What can't be verified here
 
-Real speech scoring, iOS mic wedging/ducking, TTS/narration audibility —
-Jason confirms those on his iPhone (home screen shows APP_VERSION; bump it
-plus sw.js CACHE every release so he can tell).
+TTS/narration audibility, and how the flow feels one-handed on a dog walk.
+Jason confirms those on his iPhone — the home screen shows APP_VERSION, so
+bump it plus the sw.js CACHE version every release and he can tell what he's
+running.

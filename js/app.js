@@ -1,7 +1,7 @@
 // EPA Answer Memoriser — UI and flows.
 // Screens: home, learn, quiz, drill (evidence), walk, browse, detail, progress, settings.
 
-const APP_VERSION = "v28"; // shown on the home screen; bumped every release
+const APP_VERSION = "v29"; // shown on the home screen; bumped every release
 
 const $ = sel => document.querySelector(sel);
 const app = () => $("#app");
@@ -794,7 +794,7 @@ function renderDetail(id) {
       `<li>${esc(c)}${chs[i] ? `<br><small>▶ “${esc(openingWords(chs[i]))}”</small>` : ""}</li>`).join("")}</ol></div>` : ""}
     <div class="card"><b>They might ask</b><ul>${e.questions.map(q => `<li>${esc(q)}</li>`).join("")}</ul></div>
     <div class="card"><b>Say first</b><p>“${esc(e.sayFirst)}”</p></div>
-    <div class="card"><b>The 30–45s answer</b>${e.beats.map(b => `<p>${esc(b)}</p>`).join("")}</div>
+    <div class="card"><b>The 20–30s answer</b>${e.beats.map(b => `<p>${esc(b)}</p>`).join("")}</div>
     <div class="card"><b>If probed, add</b><p>${esc(e.probe)}</p></div>
     <div class="card"><b>📄 Evidence — strongest location</b>
       <p>${esc(e.evidence.primary)}</p>

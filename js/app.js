@@ -1,7 +1,7 @@
 // EPA Answer Memoriser — UI and flows.
 // Screens: home, learn, quiz, drill (evidence), walk, browse, detail, progress, settings.
 
-const APP_VERSION = "v31"; // shown on the home screen; bumped every release
+const APP_VERSION = "v32"; // shown on the home screen; bumped every release
 
 const $ = sel => document.querySelector(sel);
 const app = () => $("#app");
@@ -804,12 +804,41 @@ function renderDetail(id) {
         ${e.evidence.backup ? `<p>BACKUP: ${esc(e.evidence.backup)}</p>` : ""}
       </details>` : ""}
     </div>
+    <div class="card">
+      <b>Your progress on this one</b>
+      <p class="detail-status">${stageBadge(s)} ${recallDots(s)}
+        <span class="detail-status-note">${s.attempts
+          ? `${s.cleanRecalls} of ${RECALLS_TO_MASTER} clean recalls &middot; ${s.attempts} attempt${s.attempts === 1 ? "" : "s"}`
+          : "Not started yet"}</span></p>
+    </div>
     <div class="controls">
       <button class="btn" onclick="speakEntryAnswer(${e.id})">🔊 Read answer aloud</button>
       <button class="btn btn-primary" onclick="startLearn(${e.id})">Learn / relearn this</button>
       <button class="btn" onclick="Engine.markLearned(${e.id});startQuiz([${e.id}])">Test me on this now</button>
+      <button class="btn btn-ghost danger" onclick="resetThisAnswer(${e.id})">↺ Start this one fresh</button>
     </div>
   `;
+}
+
+// "Start this one fresh": wipe just this answer back to Not started, for when a
+// pass felt like a cheat and you'd rather earn it again. Everything else — the
+// other 17 answers and the whole study diary — is left alone.
+function resetThisAnswer(id) {
+  const e = ANSWER_BANK.find(x => x.id === id);
+  const s = Engine.entry(id);
+  if (!s.attempts && s.stage === "new") {
+    alert(`#${e.id} ${e.ksb} is already fresh — there's nothing to clear.`);
+    return;
+  }
+  const had = `${s.cleanRecalls} clean recall${s.cleanRecalls === 1 ? "" : "s"}`;
+  if (!confirm(
+    `Start #${e.id} ${e.ksb} again from scratch?\n\n` +
+    `This clears its ${had} and sets it back to Not started.\n\n` +
+    `Your other answers and your study diary are untouched.`
+  )) return;
+  Engine.resetEntry(id);
+  Engine.logEvent("reset", { id });
+  renderDetail(id);
 }
 
 // ---------------------------------------------------------------- PROGRESS
@@ -824,6 +853,9 @@ function historyLine(ev) {
     what = `${ev.walk ? "🚶 Walk" : "📝 Quiz"} session — ${ev.clean}/${ev.n} clean`;
   } else if (ev.kind === "drill") {
     what = `📄 Evidence drill — ${ev.right}/${ev.n} nailed`;
+  } else if (ev.kind === "reset") {
+    const e = ANSWER_BANK.find(a => a.id === ev.id);
+    what = `↺ Started #${ev.id}${e ? " " + esc(e.ksb) : ""} fresh`;
   } else {
     what = esc(ev.kind);
   }

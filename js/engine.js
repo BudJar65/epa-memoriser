@@ -218,6 +218,19 @@ const Engine = {
     return { mastered, review, learning, fresh, dueCount, pct };
   },
 
+  // Wipe ONE answer back to "not started" — for when a pass felt like a cheat
+  // and you'd rather earn it again. Everything else is left alone.
+  //
+  // lastSeen MUST be stamped to now, not left at the default 0. mergeRemote()
+  // keeps whichever copy of an answer has the newer lastSeen, so a reset
+  // carrying lastSeen:0 would always lose to the other device's stale copy —
+  // i.e. you'd reset on the phone and sync would quietly hand it back mastered.
+  resetEntry(id) {
+    if (!this.state[id]) return;
+    this.state[id] = { ...defaultEntryState(), lastSeen: Date.now() };
+    this.save();
+  },
+
   resetAll() {
     this.state = {};
     for (const e of ANSWER_BANK) this.state[e.id] = defaultEntryState();

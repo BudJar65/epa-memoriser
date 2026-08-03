@@ -123,6 +123,10 @@ body {
 .chunk-dots .dot { width: 10px; height: 10px; margin: 0 3px; transition: all 0.2s; }
 
 .ksb-line { font-size: 1.15rem; margin: 10px 0 2px; }
+/* Answer detail: "Your progress on this one", above the reset button. */
+.detail-status { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; }
+.detail-status-note { color: var(--muted); font-size: 0.85rem; }
+
 .prio { color: var(--muted); font-size: 0.85rem; margin: 0 0 8px; }
 .prio-crit { color: var(--bad); font-weight: 600; }
 .crit-flag {

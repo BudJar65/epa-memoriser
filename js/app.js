@@ -1,7 +1,7 @@
 // EPA Answer Memoriser — UI and flows.
 // Screens: home, learn, quiz, drill (evidence), walk, browse, detail, progress, settings.
 
-const APP_VERSION = "v30"; // shown on the home screen; bumped every release
+const APP_VERSION = "v31"; // shown on the home screen; bumped every release
 
 const $ = sel => document.querySelector(sel);
 const app = () => $("#app");
@@ -988,7 +988,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("pause-btn").addEventListener("click", () => Pause.toggle());
   document.getElementById("pause-resume").addEventListener("click", () => Pause.resume());
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
-    navigator.serviceWorker.register("sw.js").catch(() => {});
+    // updateViaCache:"none" — always fetch sw.js itself from the network. Without it
+    // the browser may serve a cached sw.js and never notice a new release exists.
+    navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
   }
   // Decrypt the answer bank: automatically if this device knows the
   // passphrase, otherwise show the unlock screen.

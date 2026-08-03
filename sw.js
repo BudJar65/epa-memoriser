@@ -1,5 +1,5 @@
 // Service worker: caches the app so it works offline (e.g. patchy signal on a walk).
-const CACHE = "epa-memoriser-v30";
+const CACHE = "epa-memoriser-v31";
 const ASSETS = [
   ".",
   "index.html",
@@ -46,8 +46,11 @@ self.addEventListener("fetch", e => {
     );
     return;
   }
+  // cache:"no-cache" still uses the browser's HTTP cache, but always asks the server
+  // "has this changed?" first. Without it GitHub Pages' max-age=600 means a fresh
+  // release can keep serving the previous one for up to 10 minutes.
   e.respondWith(
-    fetch(e.request).then(res => {
+    fetch(e.request, { cache: "no-cache" }).then(res => {
       const copy = res.clone();
       caches.open(CACHE).then(c => c.put(e.request, copy));
       return res;

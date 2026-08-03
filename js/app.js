@@ -1,7 +1,7 @@
 // EPA Answer Memoriser — UI and flows.
 // Screens: home, learn, quiz, drill (evidence), walk, browse, detail, progress, settings.
 
-const APP_VERSION = "v29"; // shown on the home screen; bumped every release
+const APP_VERSION = "v30"; // shown on the home screen; bumped every release
 
 const $ = sel => document.querySelector(sel);
 const app = () => $("#app");
@@ -338,7 +338,7 @@ function renderLearn() {
           <p class="step-label">Chunk hidden — say it out loud, then reveal:</p>
           ${cue ? `<p class="chunk-cue">🪝 ${esc(cue)}</p>` : ""}
           <p class="cue">${esc(firstLetterCue(chunk))}</p>
-          <details class="peek"><summary>How it starts</summary><p>“${esc(openingWords(chunk))}”</p></details>
+          <details class="peek"><summary>Show me the chunk</summary><p>“${chunkHtml(chunk)}”</p></details>
         </div>`;
       controls = `
         <button class="btn btn-primary btn-big" onclick="learn.phase='reveal';renderLearn()">Reveal to check</button>
